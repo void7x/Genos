@@ -62,6 +62,20 @@ class AgentWorkflow:
         if not target:
             return "Write target cannot be empty."
 
+        target_path = (self.root / target).resolve()
+
+        try:
+            target_path.relative_to(self.root)
+        except ValueError:
+            return "Write target escapes the active workspace."
+
+        if target_path.exists():
+            return (
+                f"Target already exists: {target}\n"
+                "I will not overwrite an existing file automatically.\n"
+                "Use the explicit 'overwrite file' command when you intend to replace it."
+            )
+
         self.pending = PendingAction(
             PermissionLevel.SAFE_WRITE,
             WorkflowPlan(
@@ -222,3 +236,4 @@ class AgentWorkflow:
                 "REMEMBER: Saved workflow completion to project memory.",
             ]
         )
+

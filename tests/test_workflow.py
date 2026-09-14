@@ -127,3 +127,19 @@ def test_runtime_workflow_write(tmp_path: Path):
     assert (tmp_path / "hello.txt").read_text(
         encoding="utf-8"
     ) == "hello"
+
+def test_workflow_rejects_existing_target(tmp_path: Path):
+    target = tmp_path / "hello.txt"
+    target.write_text("old", encoding="utf-8")
+
+    workflow = workflow_for(tmp_path)
+
+    response = workflow.plan_write(
+        "hello.txt",
+        "new",
+    )
+
+    assert "Target already exists" in response
+    assert "will not overwrite" in response
+    assert workflow.pending is None
+    assert target.read_text(encoding="utf-8") == "old"

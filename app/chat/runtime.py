@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -425,6 +425,28 @@ class GenosRuntime:
             self.conversation.append_turn("assistant", response)
             return response
 
+        if (
+            normalized.startswith("create a notes file")
+            or normalized.startswith("create notes file")
+            or normalized.startswith("make a notes file")
+            or normalized.startswith("make notes file")
+        ):
+            status = self._project_info()
+
+            content = (
+                "# Project Status\n\n"
+                + status
+                + "\n"
+            )
+
+            response = self.workflow.plan_write(
+                "notes/project_status.md",
+                content,
+            )
+
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
         intent = self.intent_router.route(text)
 
         if intent.name == "empty":
@@ -751,6 +773,9 @@ class GenosRuntime:
 
 def main() -> None:
     GenosRuntime(Path.cwd()).run()
+
+
+
 
 
 

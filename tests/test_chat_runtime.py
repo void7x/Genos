@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from app.chat import GenosRuntime
 
@@ -212,3 +212,104 @@ def test_verify_project_runtime(tmp_path: Path):
     response = runtime.handle("verify project")
 
     assert "VERIFICATION: PASSED" in response
+
+def test_natural_task_plans_project_status_notes(tmp_path: Path):
+    runtime = GenosRuntime(
+        tmp_path,
+        data_root=tmp_path / "data",
+    )
+
+    response = runtime.handle(
+        "create a notes file with the current project status"
+    )
+
+    assert "Plan:" in response
+    assert "SAFE_WRITE" in response
+    assert "notes/project_status.md" in response
+
+
+def test_natural_task_executes_after_approval(tmp_path: Path):
+    runtime = GenosRuntime(
+        tmp_path,
+        data_root=tmp_path / "data",
+    )
+
+    runtime.handle("grant safe write")
+
+    response = runtime.workflow.plan_write(
+        "notes/workflow_status.md",
+        "# Project Status\n\nName: Genos\nType: Python\n",
+    )
+
+    assert "SAFE_WRITE" in response
+
+    result = runtime.handle("approve")
+
+    target = (
+        Path(runtime.root)
+        / "notes"
+        / "workflow_status.md"
+    )
+
+    assert "ACT: SUCCESS" in result
+    assert "VERIFY: PASSED" in result
+    assert "REMEMBER: Saved" in result
+    assert target.exists()
+
+    content = target.read_text(encoding="utf-8")
+
+    assert "# Project Status" in content
+    assert "Name: Genos" in content
+    assert "Type: Python" in content
+
+def test_natural_task_executes_after_approval(tmp_path: Path):
+    runtime = GenosRuntime(
+        tmp_path,
+        data_root=tmp_path / "data",
+    )
+
+    runtime.handle("grant safe write")
+
+    response = runtime.workflow.plan_write(
+        "notes/workflow_status.md",
+        "# Project Status\n\nName: Genos\nType: Python\n",
+    )
+
+    assert "SAFE_WRITE" in response
+
+    result = runtime.handle("approve")
+
+    target = (
+        Path(runtime.root)
+        / "notes"
+        / "workflow_status.md"
+    )
+
+    assert "ACT: SUCCESS" in result
+    assert "VERIFY: PASSED" in result
+    assert "REMEMBER: Saved" in result
+    assert target.exists()
+
+    content = target.read_text(encoding="utf-8")
+
+    assert "# Project Status" in content
+    assert "Name: Genos" in content
+    assert "Type: Python" in content
+
+def test_natural_task_stops_on_existing_target(tmp_path: Path):
+    runtime = runtime_for(tmp_path)
+
+    target = Path(runtime.root) / "notes" / "project_status.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("existing", encoding="utf-8")
+
+    response = runtime.handle(
+        "create a notes file with the current project status"
+    )
+
+    assert "Target already exists" in response
+    assert "will not overwrite" in response
+
+
+
+
