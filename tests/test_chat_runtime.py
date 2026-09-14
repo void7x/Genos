@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from app.chat import GenosRuntime
 
@@ -190,3 +190,25 @@ def test_execute_permission_and_command(tmp_path: Path):
     assert "Python" in result
 
 
+
+
+def test_verify_file_runtime(tmp_path: Path):
+    runtime = runtime_for(tmp_path)
+
+    target = Path(runtime.root) / "verification_target.txt"
+    target.write_text("verified", encoding="utf-8")
+
+    response = runtime.handle(
+        "verify file verification_target.txt"
+    )
+
+    assert "VERIFICATION: PASSED" in response
+    assert "Verified file" in response
+
+
+def test_verify_project_runtime(tmp_path: Path):
+    runtime = runtime_for(tmp_path)
+
+    response = runtime.handle("verify project")
+
+    assert "VERIFICATION: PASSED" in response

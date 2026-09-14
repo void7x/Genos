@@ -3,13 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.chat.intent import IntentRouter
-from app.agent import AgentOrchestrator
+from app.agent import AgentOrchestrator, AgentWorkflow
 from app.conversation.repository import ConversationRepository
 from app.goals.models import Goal
 from app.goals.repository import GoalRepository
 from app.memory import MemoryManager, MemoryRepository
 from app.permissions import PermissionLevel, PermissionManager
 from app.tools import ProjectActionTools, ProjectTools
+from app.verification import VerificationEngine
 from app.workspace import (
     ProjectInspector,
     WorkspaceManager,
@@ -49,9 +50,20 @@ class GenosRuntime:
         self.action_tools = ProjectActionTools(self.root, self.permissions)
         self.intent_router = IntentRouter()
         self.orchestrator = AgentOrchestrator(self.root)
+        self.verifier = VerificationEngine(self.root, self.action_tools)
+        self.verifier = VerificationEngine(self.root, self.action_tools)
 
         self.memory = MemoryManager(
             MemoryRepository(data / "memory")
+        )
+
+        self.workflow = AgentWorkflow(
+            self.root,
+            self.permissions,
+            self.action_tools,
+            self.verifier,
+            self.memory,
+            self.workspace.id,
         )
 
         self.goals = GoalRepository(data / "goals.json")
@@ -65,6 +77,8 @@ class GenosRuntime:
         self.root = Path(workspace.path).resolve(strict=True)
         self.tools = ProjectTools(self.root)
         self.orchestrator = AgentOrchestrator(self.root)
+        self.verifier = VerificationEngine(self.root, self.action_tools)
+        self.verifier = VerificationEngine(self.root, self.action_tools)
         self.conversation = ConversationRepository(
             self.data_root / "conversation" / f"{workspace.id}.json"
         )
@@ -331,6 +345,86 @@ class GenosRuntime:
             self.conversation.append_turn("assistant", response)
             return response
 
+        if normalized in {
+            "verify project",
+            "verify this project",
+            "check my project",
+        }:
+            result = self.verifier.verify_project()
+            response = self._verification_response(result)
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if normalized in {
+            "verify git",
+            "verify git status",
+            "verify repository",
+        }:
+            result = self.verifier.verify_git()
+            response = self._verification_response(result)
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if normalized in {
+            "verify tests",
+            "verify test suite",
+            "verify the tests",
+        }:
+            result = self.verifier.verify_tests()
+            response = self._verification_response(result)
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if normalized.startswith("verify file "):
+            relative_path = text[len("verify file "):].strip()
+            result = self.verifier.verify_file(relative_path)
+            response = self._verification_response(result)
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+
+        if normalized == "approve":
+            response = self.workflow.approve()
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if normalized == "deny":
+            response = self.workflow.deny()
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if normalized.startswith("plan write file "):
+            payload = text[len("plan write file "):].strip()
+
+            if " :: " not in payload:
+                response = (
+                    "Workflow write format: "
+                    "plan write file <path> :: <content>"
+                )
+            else:
+                relative_path, content = payload.split(" :: ", 1)
+                response = self.workflow.plan_write(
+                    relative_path.strip(),
+                    content,
+                )
+
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if normalized.startswith("plan execute "):
+            command = text[len("plan execute "):].strip()
+            response = self.workflow.plan_execute(command)
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
         intent = self.intent_router.route(text)
 
         if intent.name == "empty":
@@ -480,6 +574,24 @@ class GenosRuntime:
 
             if self.intent_router.route(message).name == "exit":
                 break
+
+    @staticmethod
+    def _verification_response(result) -> str:
+        lines = [
+            "VERIFICATION: "
+            + ("PASSED" if result.success else "FAILED"),
+            result.summary,
+        ]
+
+        if result.checks:
+            lines.append("")
+            lines.append("Checks:")
+            lines.extend(
+                f"- {check}"
+                for check in result.checks
+            )
+
+        return "\n".join(lines)
 
     def _capabilities(self) -> str:
         return "\n".join(

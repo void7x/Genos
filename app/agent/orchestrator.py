@@ -227,10 +227,17 @@ class AgentOrchestrator:
                 f"'{search_step.argument}' "
                 "but found no matching files."
             )
+        prioritized = sorted(
+            matches,
+            key=lambda name: (
+                0 if "permissions" in name.casefold() else 1,
+                name.casefold(),
+            ),
+        )
 
         readable = []
 
-        for relative_name in matches[:3]:
+        for relative_name in prioritized[:3]:
             result = self.tools.read_file(relative_name)
 
             if not result.success:
@@ -252,6 +259,16 @@ class AgentOrchestrator:
                 f"[{relative_name}]\n{content}"
             )
 
+        prioritized = sorted(
+            matches,
+            key=lambda name: (
+                0
+                if "permissions" in name.casefold()
+                else 1,
+                name.casefold(),
+            ),
+        )
+
         response = [
             f"I found {len(matches)} matching file(s).",
             f"Search: {search_step.argument}",
@@ -259,7 +276,7 @@ class AgentOrchestrator:
             "Relevant files:",
             *[
                 f"- {name}"
-                for name in matches[:3]
+                for name in prioritized[:3]
             ],
         ]
 
@@ -313,3 +330,4 @@ class AgentOrchestrator:
                 files.output if files.success else files.error,
             ]
         )
+
