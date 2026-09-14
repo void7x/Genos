@@ -105,3 +105,69 @@ def test_query_preserves_case():
 
     assert plan is not None
     assert plan.steps[0].argument == "PermissionManager"
+
+
+def test_issue_diagnosis_creates_plan():
+    orchestrator = AgentOrchestrator(
+        Path(__file__).resolve().parents[1]
+    )
+
+    plan = orchestrator.plan(
+        "what is wrong with authentication"
+    )
+
+    assert plan is not None
+    assert plan.intent == "issue_diagnosis"
+    assert [step.tool for step in plan.steps] == [
+        "project_info",
+        "git_status",
+        "list_files",
+        "search_files",
+    ]
+    assert plan.steps[-1].argument == "authentication"
+
+
+def test_issue_diagnosis_runs_evidence_gathering():
+    orchestrator = AgentOrchestrator(
+        Path(__file__).resolve().parents[1]
+    )
+
+    response = orchestrator.run(
+        "what is wrong with authentication"
+    )
+
+    assert response is not None
+    assert "Project diagnosis:" in response
+    assert "Evidence:" in response
+    assert "Relevant evidence for" in response
+    assert "Inspected evidence:" in response
+
+
+def test_issue_diagnosis_handles_failure_question():
+    orchestrator = AgentOrchestrator(
+        Path(__file__).resolve().parents[1]
+    )
+
+    plan = orchestrator.plan(
+        "why is this project failing"
+    )
+
+    assert plan is not None
+    assert plan.intent == "issue_diagnosis"
+    assert plan.steps[-1].tool != "search_files"
+
+
+def test_runtime_routes_natural_diagnosis(tmp_path: Path):
+    from app.chat import GenosRuntime
+
+    runtime = GenosRuntime(
+        Path(__file__).resolve().parents[1],
+        data_root=tmp_path / "data",
+    )
+
+    response = runtime.handle(
+        "what is wrong with authentication"
+    )
+
+    assert "Project diagnosis:" in response
+    assert "Evidence:" in response

@@ -66,6 +66,23 @@ class AgentOrchestrator:
                 ),
             )
 
+        if self._is_issue_diagnosis(text):
+            query = self._extract_diagnosis_query(request)
+
+            steps = [
+                PlanStep("project_info"),
+                PlanStep("git_status"),
+                PlanStep("list_files"),
+            ]
+
+            if query:
+                steps.append(PlanStep("search_files", query))
+
+            return AgentPlan(
+                intent="issue_diagnosis",
+                steps=tuple(steps),
+            )
+
         return None
 
     def run(self, request: str) -> str | None:
@@ -79,6 +96,9 @@ class AgentOrchestrator:
 
         if plan.intent == "project_diagnosis":
             return self._run_project_diagnosis()
+
+        if plan.intent == "issue_diagnosis":
+            return self._run_issue_diagnosis(plan)
 
         return None
 
@@ -106,6 +126,89 @@ class AgentOrchestrator:
 
         return has_search and has_inspection
 
+    @staticmethod
+    def _is_issue_diagnosis(text: str) -> bool:
+        markers = (
+            "why is this project failing",
+            "why is the project failing",
+            "why is this project broken",
+            "what is wrong with this project",
+            "what is wrong with the project",
+            "find the problem with this project",
+            "find the issue with this project",
+            "diagnose the project",
+            "diagnose this project",
+            "find the likely cause",
+            "what is wrong with",
+            "why is",
+            "why does this fail",
+            "why does this error happen",
+        )
+
+        return any(marker in text for marker in markers)
+
+    @staticmethod
+    def _extract_diagnosis_query(request: str) -> str:
+        original = " ".join(str(request).strip().split())
+        text = original.casefold()
+
+        prefixes = (
+            "what is wrong with ",
+            "find the problem with ",
+            "find the issue with ",
+            "what is the problem with ",
+            "what is the issue with ",
+            "why is ",
+            "why does ",
+            "find the likely cause of ",
+            "diagnose ",
+        )
+
+        for prefix in prefixes:
+            if text.startswith(prefix):
+                value = original[len(prefix):].strip()
+
+                if value.casefold() in {
+                    "this project",
+                    "the project",
+                    "this",
+                    "the project failing",
+                    "this project failing",
+                }:
+                    return ""
+
+                return value
+
+        if (
+            "why is this project failing" in text
+            or "why is the project failing" in text
+            or "why is this project broken" in text
+            or "what is wrong with this project" in text
+            or "what is wrong with the project" in text
+        ):
+            return ""
+
+        keywords = (
+            "authentication",
+            "authorization",
+            "login",
+            "database",
+            "api",
+            "backend",
+            "frontend",
+            "tests",
+            "testing",
+            "docker",
+            "build",
+            "configuration",
+            "config",
+        )
+
+        for keyword in keywords:
+            if keyword in text:
+                return keyword
+
+        return ""
     @staticmethod
     def _is_project_diagnosis(text: str) -> bool:
         markers = (
@@ -296,6 +399,110 @@ class AgentOrchestrator:
 
         return "\n".join(response)
 
+    def _run_issue_diagnosis(self, plan: AgentPlan) -> str:
+        from app.workspace import ProjectInspector
+
+        info = ProjectInspector().inspect(self.root)
+        git = self.tools.git_status()
+        files = self.tools.list_files()
+
+        query = ""
+        for step in plan.steps:
+            if step.tool == "search_files":
+                query = step.argument
+                break
+
+        matches = self.tools.search_files(query) if query else None
+
+        relevant = []
+        match_lines = []
+
+        if matches is not None and matches.success:
+            match_lines = [
+                line.strip()
+                for line in matches.output.splitlines()
+                if line.strip()
+            ]
+
+        relevant = match_lines[:3]
+
+        lines = [
+            "Project diagnosis:",
+            f"Project: {info.name}",
+            f"Type: {info.project_type}",
+            f"Git branch: {info.git_branch or 'unknown'}",
+            f"Git clean: {info.git_clean}",
+            "",
+            "Evidence:",
+            f"- Files discovered: {len(files.output.splitlines()) if files.success else 0}",
+            f"- Source directories: {', '.join(info.source_dirs) if info.source_dirs else 'none detected'}",
+            f"- Test directories: {', '.join(info.test_dirs) if info.test_dirs else 'none detected'}",
+            "",
+            "Git status:",
+            git.output if git.success else git.error,
+        ]
+
+        if query:
+            lines.extend(
+                [
+                    "",
+                    f"Relevant evidence for '{query}':",
+                ]
+            )
+
+            if relevant:
+                lines.extend(
+                    f"- {item}"
+                    for item in relevant
+                )
+            else:
+                lines.append(
+                    "- No directly matching files found."
+                )
+
+        lines.extend(
+            [
+                "",
+                "Inspected evidence:",
+                "",
+            ]
+        )
+
+        if relevant:
+            for relative_path in relevant:
+                result = self.tools.read_file(relative_path)
+
+                if result.success:
+                    preview = result.output[:1200].strip()
+                    lines.extend(
+                        [
+                            f"[{relative_path}]",
+                            preview,
+                            "",
+                        ]
+                    )
+                else:
+                    lines.extend(
+                        [
+                            f"[{relative_path}]",
+                            f"Could not inspect file: {result.error}",
+                            "",
+                        ]
+                    )
+        else:
+            lines.append(
+                "- No matching files were available for inspection."
+            )
+
+        lines.extend(
+            [
+                "Assessment:",
+                "The diagnosis is evidence-based from project structure, Git state, and relevant file evidence.",
+                "No files were modified.",
+            ]
+        )
+
+        return "\n".join(lines)
     def _run_project_diagnosis(self) -> str:
         from app.workspace import ProjectInspector
 
@@ -330,4 +537,15 @@ class AgentOrchestrator:
                 files.output if files.success else files.error,
             ]
         )
+
+
+
+
+
+
+
+
+
+
+
 

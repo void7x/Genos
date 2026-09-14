@@ -453,6 +453,28 @@ class GenosRuntime:
             self.conversation.append_turn("assistant", response)
             return response
 
+        orchestration_plan = self.orchestrator.plan(text)
+
+        if (
+            orchestration_plan is not None
+            and orchestration_plan.intent == "issue_diagnosis"
+        ):
+            response = self.orchestrator.run(text)
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        orchestration_plan = self.orchestrator.plan(text)
+
+        if (
+            orchestration_plan is not None
+            and orchestration_plan.intent == "issue_diagnosis"
+        ):
+            response = self.orchestrator.run(text)
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
         intent = self.intent_router.route(text)
 
         task_plan = self.task_planner.plan(text)
@@ -977,6 +999,9 @@ class GenosRuntime:
 
 def main() -> None:
     GenosRuntime(Path.cwd()).run()
+
+
+
 
 
 
