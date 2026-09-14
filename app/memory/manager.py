@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from dataclasses import asdict, dataclass
@@ -23,12 +24,24 @@ class MemoryRepository:
 
     def _path(self, workspace_id: str) -> Path:
         normalized = str(workspace_id).strip()
+
         if not normalized:
             raise ValueError("Workspace ID cannot be empty.")
-        return self.root / normalized / "memory.json"
+
+        # Never use caller-controlled workspace IDs directly as path components.
+        safe_name = hashlib.sha256(
+            normalized.encode("utf-8")
+        ).hexdigest()
+
+        return self.root / safe_name / "memory.json"
 
     def load(self, workspace_id: str) -> list[Memory]:
-        path = self._path(workspace_id)
+        normalized_workspace = str(workspace_id).strip()
+
+        if not normalized_workspace:
+            raise ValueError("Workspace ID cannot be empty.")
+
+        path = self._path(normalized_workspace)
 
         if not path.exists():
             return []
@@ -49,6 +62,7 @@ class MemoryRepository:
 
             try:
                 tags = item.get("tags", [])
+
                 if not isinstance(tags, list):
                     tags = []
 
@@ -57,7 +71,11 @@ class MemoryRepository:
                         id=str(item.get("id", "")),
                         workspace_id=str(item.get("workspace_id", "")),
                         content=str(item.get("content", "")).strip(),
-                        tags=tuple(str(tag).strip() for tag in tags if str(tag).strip()),
+                        tags=tuple(
+                            str(tag).strip()
+                            for tag in tags
+                            if str(tag).strip()
+                        ),
                         created_at=str(item.get("created_at", "")),
                         updated_at=str(item.get("updated_at", "")),
                     )
@@ -69,12 +87,17 @@ class MemoryRepository:
             memory
             for memory in memories
             if memory.id
-            and memory.workspace_id == str(workspace_id).strip()
+            and memory.workspace_id == normalized_workspace
             and memory.content
         ]
 
     def save(self, workspace_id: str, memories: list[Memory]) -> None:
-        path = self._path(workspace_id)
+        normalized_workspace = str(workspace_id).strip()
+
+        if not normalized_workspace:
+            raise ValueError("Workspace ID cannot be empty.")
+
+        path = self._path(normalized_workspace)
         path.parent.mkdir(parents=True, exist_ok=True)
 
         payload = [asdict(memory) for memory in memories]
