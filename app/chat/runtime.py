@@ -6,6 +6,7 @@ from app.chat.intent import IntentRouter
 from app.chat.context import ConversationContext
 from app.agent import AgentOrchestrator, AgentWorkflow
 from app.agent.task_planner import TaskPlanner
+from app.agent.coding_executor import CodingTaskExecutor
 from app.conversation.repository import ConversationRepository
 from app.goals.models import Goal
 from app.goals.repository import GoalRepository
@@ -52,6 +53,7 @@ class GenosRuntime:
         self.action_tools = ProjectActionTools(self.root, self.permissions)
         self.intent_router = IntentRouter()
         self.task_planner = TaskPlanner()
+        self.coding_executor = CodingTaskExecutor(self.root)
         self.orchestrator = AgentOrchestrator(self.root)
         self.verifier = VerificationEngine(self.root, self.action_tools)
         self.verifier = VerificationEngine(self.root, self.action_tools)
@@ -495,6 +497,31 @@ class GenosRuntime:
                     task_plan.target,
                     task_plan.details,
                 )
+
+            elif task_plan.action == "add_logging":
+                prepared = self.coding_executor.prepare(
+                    task_plan.action,
+                    task_plan.target,
+                    task_plan.details,
+                )
+
+                if prepared is None:
+                    response = (
+                        "\n".join(lines)
+                        + "\n\n"
+                        "I could not safely prepare this coding change."
+                    )
+                else:
+                    target, new_content = prepared
+                    response = self.workflow.plan_edit(
+                        target,
+                        new_content,
+                        reason=(
+                            "Prepare a focused logging change "
+                            "to the target Python module"
+                        ),
+                    )
+
             else:
                 response = "\n".join(lines)
 
@@ -950,6 +977,11 @@ class GenosRuntime:
 
 def main() -> None:
     GenosRuntime(Path.cwd()).run()
+
+
+
+
+
 
 
 

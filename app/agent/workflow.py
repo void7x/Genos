@@ -14,6 +14,7 @@ class WorkflowPlan:
     action: str
     target: str
     details: str = ""
+    original_content: str = ""
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,61 @@ class AgentWorkflow:
 
         return "\n".join(lines)
 
+    def plan_edit(
+        self,
+        relative_path: str,
+        new_content: str,
+        *,
+        reason: str = "Update the file",
+    ) -> str:
+        target = relative_path.strip()
+
+        if not target:
+            return "Edit target cannot be empty."
+
+        target_path = (self.root / target).resolve()
+
+        try:
+            target_path.relative_to(self.root)
+        except ValueError:
+            return "Edit target escapes the active workspace."
+
+        if not target_path.exists():
+            return f"File not found: {target}"
+
+        if not target_path.is_file():
+            return f"Not a file: {target}"
+
+        try:
+            original = target_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            return f"Could not read {target}: {exc}"
+
+        if original == new_content:
+            return f"No changes required: {target}"
+
+        self.pending = PendingAction(
+            PermissionLevel.SAFE_WRITE,
+            WorkflowPlan(
+                action="edit",
+                target=target,
+                details=new_content,
+                original_content=original,
+            ),
+        )
+
+        return "\n".join(
+            [
+                "Plan:",
+                f"1. {reason}",
+                f"2. Update {target}",
+                "3. Verify the resulting file content",
+                "4. Remember the completed action",
+                "",
+                "Permission required: SAFE_WRITE",
+                "Type 'approve' to continue or 'deny' to cancel.",
+            ]
+        )
     def plan_execute(self, command: str) -> str:
         command = command.strip()
 
@@ -141,6 +197,9 @@ class AgentWorkflow:
 
         if pending.plan.action == "write":
             return self._perform_write(pending.plan)
+
+        if pending.plan.action == "edit":
+            return self._perform_edit(pending.plan)
 
         if pending.plan.action == "execute":
             return self._perform_execute(pending.plan)
@@ -206,6 +265,55 @@ class AgentWorkflow:
             ]
         )
 
+    def _perform_edit(self, plan: WorkflowPlan) -> str:
+        result = self.action_tools.write_file(
+            plan.target,
+            plan.details,
+            overwrite=True,
+        )
+
+        if not result.success:
+            return "\n".join(
+                [
+                    "ACT: FAILED",
+                    result.error,
+                ]
+            )
+
+        verification = self.verifier.verify_file(
+            plan.target,
+            expected_content=plan.details,
+        )
+
+        if not verification.success:
+            return "\n".join(
+                [
+                    "ACT: SUCCESS",
+                    result.output,
+                    "",
+                    "VERIFY: FAILED",
+                    verification.summary,
+                ]
+            )
+
+        self.memory.add(
+            self.workspace_id,
+            f"Edited {plan.target} through Genos coding workflow.",
+            ("workflow", "edit"),
+        )
+
+        return "\n".join(
+            [
+                "ACT: SUCCESS",
+                result.output,
+                "",
+                "VERIFY: PASSED",
+                verification.summary,
+                "",
+                "REMEMBER: Saved coding action to project memory.",
+            ]
+        )
+
     def _perform_execute(self, plan: WorkflowPlan) -> str:
         result = self.action_tools.execute_command(plan.target)
 
@@ -236,4 +344,6 @@ class AgentWorkflow:
                 "REMEMBER: Saved workflow completion to project memory.",
             ]
         )
+
+
 
