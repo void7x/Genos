@@ -1,4 +1,4 @@
-﻿"""Persistent recent conversation history for Mereum."""
+﻿"""Persistent recent conversation history for Genos."""
 
 from __future__ import annotations
 

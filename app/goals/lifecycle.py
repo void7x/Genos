@@ -1,4 +1,4 @@
-﻿"""Structured intent for changing an existing Mereum goal."""
+﻿"""Structured intent for changing an existing Genos goal."""
 
 from __future__ import annotations
 

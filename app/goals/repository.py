@@ -12,7 +12,7 @@ from app.goals.models import Goal
 
 
 class GoalRepository:
-    """Store goals as JSON while keeping storage details out of the rest of Mereum."""
+    """Store goals as JSON while keeping storage details out of the rest of Genos."""
 
     def __init__(self, path: Path):
         self.path = Path(path)

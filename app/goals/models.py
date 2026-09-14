@@ -1,4 +1,4 @@
-﻿"""Structured long-term goals for Mereum."""
+﻿"""Structured long-term goals for Genos."""
 
 from __future__ import annotations
 
