@@ -414,7 +414,6 @@ class AgentOrchestrator:
 
         matches = self.tools.search_files(query) if query else None
 
-        relevant = []
         match_lines = []
 
         if matches is not None and matches.success:
@@ -425,6 +424,33 @@ class AgentOrchestrator:
             ]
 
         relevant = match_lines[:3]
+
+        inspected = []
+
+        for relative_path in relevant:
+            result = self.tools.read_file(relative_path)
+
+            if result.success:
+                inspected.append(
+                    {
+                        "path": relative_path,
+                        "content": result.output,
+                    }
+                )
+            else:
+                inspected.append(
+                    {
+                        "path": relative_path,
+                        "content": "",
+                        "error": result.error,
+                    }
+                )
+
+        causes = self._rank_root_causes(
+            query=query,
+            inspected=inspected,
+            git=git.output if git.success else git.error,
+        )
 
         lines = [
             "Project diagnosis:",
@@ -468,27 +494,29 @@ class AgentOrchestrator:
             ]
         )
 
-        if relevant:
-            for relative_path in relevant:
-                result = self.tools.read_file(relative_path)
+        if inspected:
+            for item in inspected:
+                path = item["path"]
 
-                if result.success:
-                    preview = result.output[:1200].strip()
+                if item.get("error"):
                     lines.extend(
                         [
-                            f"[{relative_path}]",
-                            preview,
+                            f"[{path}]",
+                            f"Could not inspect file: {item['error']}",
                             "",
                         ]
                     )
-                else:
-                    lines.extend(
-                        [
-                            f"[{relative_path}]",
-                            f"Could not inspect file: {result.error}",
-                            "",
-                        ]
-                    )
+                    continue
+
+                preview = item["content"][:1200].strip()
+
+                lines.extend(
+                    [
+                        f"[{path}]",
+                        preview,
+                        "",
+                    ]
+                )
         else:
             lines.append(
                 "- No matching files were available for inspection."
@@ -496,13 +524,201 @@ class AgentOrchestrator:
 
         lines.extend(
             [
-                "Assessment:",
-                "The diagnosis is evidence-based from project structure, Git state, and relevant file evidence.",
-                "No files were modified.",
+                "",
+                "Likely causes:",
             ]
         )
 
+        if causes:
+            for index, cause in enumerate(causes[:3], 1):
+                lines.append(
+                    f"{index}. {cause['title']} "
+                    f"(confidence: {cause['confidence']})"
+                )
+                lines.append(
+                    f"   Why: {cause['reason']}"
+                )
+        else:
+            lines.append(
+                "1. No strong root-cause signal was detected "
+                "(confidence: low)"
+            )
+            lines.append(
+                "   Why: available project evidence did not contain "
+                "a specific failure signature."
+            )
+
+        lines.extend(
+            [
+                "",
+                "Assessment:",
+            ]
+        )
+
+        if causes:
+            lines.append(
+                "The strongest available explanation is ranked from "
+                "local code, configuration, and Git evidence."
+            )
+        else:
+            lines.append(
+                "The evidence is currently insufficient to identify "
+                "a specific root cause."
+            )
+
+        lines.append(
+            "No files were modified."
+        )
+
         return "\n".join(lines)
+
+    @staticmethod
+    def _rank_root_causes(
+        query: str,
+        inspected: list[dict[str, str]],
+        git: str,
+    ) -> list[dict[str, str]]:
+        query_text = query.casefold()
+        combined = "\n".join(
+            item.get("content", "")
+            for item in inspected
+        ).casefold()
+
+        causes: list[dict[str, str]] = []
+
+        def add_cause(
+            title: str,
+            confidence: str,
+            reason: str,
+            score: int,
+        ) -> None:
+            causes.append(
+                {
+                    "title": title,
+                    "confidence": confidence,
+                    "reason": reason,
+                    "_score": str(score),
+                }
+            )
+
+        auth_related = any(
+            marker in query_text
+            for marker in (
+                "authentication",
+                "authorization",
+                "login",
+                "auth",
+            )
+        )
+
+        if auth_related:
+            if any(
+                marker in combined
+                for marker in (
+                    "401",
+                    "unauthorized",
+                    "invalid token",
+                    "token expired",
+                    "jwt",
+                    "authorizationerror",
+                )
+            ):
+                add_cause(
+                    "Authentication credentials or token validation",
+                    "high",
+                    "inspected code contains an authentication failure signature such as "
+                    "401/Unauthorized, invalid-token handling, JWT validation, or an "
+                    "authentication exception.",
+                    100,
+                )
+
+            if any(
+                marker in combined
+                for marker in (
+                    "os.getenv(",
+                    "os.environ",
+                    "environment.get",
+                    "secret",
+                    "client_secret",
+                    "api_key",
+                )
+            ):
+                add_cause(
+                    "Missing or misconfigured authentication configuration",
+                    "high",
+                    "inspected code reads authentication secrets or environment "
+                    "configuration, so missing or incorrect runtime configuration "
+                    "is a plausible failure source.",
+                    90,
+                )
+
+            if any(
+                marker in combined
+                for marker in (
+                    "oauth",
+                    "openid",
+                    "authorization_code",
+                    "redirect_uri",
+                    "callback",
+                )
+            ):
+                add_cause(
+                    "Authentication flow or callback configuration",
+                    "medium",
+                    "the inspected code contains OAuth/OpenID-style flow elements, "
+                    "so redirect, callback, or provider configuration may be involved.",
+                    75,
+                )
+
+        if any(
+            marker in combined
+            for marker in (
+                "traceback",
+                "exception",
+                "raise ",
+                "error",
+                "failed",
+            )
+        ):
+            add_cause(
+                "Unhandled exception or failure path",
+                "medium",
+                "the inspected code contains explicit exception, error, or failure "
+                "handling signals that may explain the reported problem.",
+                60,
+            )
+
+        if any(
+            marker in git.casefold()
+            for marker in (
+                "ahead",
+                "behind",
+                "conflict",
+                "modified",
+                "untracked",
+            )
+        ):
+            add_cause(
+                "Uncommitted or conflicting project state",
+                "low",
+                "Git reports local changes or another repository-state signal, "
+                "which can cause behavior to differ from the expected version.",
+                40,
+            )
+
+        for cause in causes:
+            cause["_score"] = str(
+                -int(cause["_score"])
+            )
+
+        causes.sort(
+            key=lambda item: int(item["_score"])
+        )
+
+        for cause in causes:
+            cause.pop("_score", None)
+
+        return causes
     def _run_project_diagnosis(self) -> str:
         from app.workspace import ProjectInspector
 
@@ -537,6 +753,7 @@ class AgentOrchestrator:
                 files.output if files.success else files.error,
             ]
         )
+
 
 
 

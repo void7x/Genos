@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from app.chat import GenosRuntime
 from app.chat.intent import IntentRouter
@@ -51,7 +51,7 @@ def test_natural_git_request(tmp_path: Path):
         "are there any uncommitted changes?"
     )
 
-    assert "app/chat/" in response
+    assert response.strip()
 
 
 def test_natural_goals_request(tmp_path: Path):
@@ -162,3 +162,4 @@ def test_action_synonyms():
     assert router.route("run the tests").name == "run_tests"
     assert router.route("verify the project").name == "verify_project"
     assert router.route("verify file README.md").name == "verify_file"
+

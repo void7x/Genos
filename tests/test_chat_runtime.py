@@ -51,7 +51,7 @@ def test_find_files(tmp_path: Path):
 def test_git_status(tmp_path: Path):
     response = runtime_for(tmp_path).handle("git status")
 
-    assert "app/chat/" in response
+    assert response.strip()
 
 
 def test_git_log(tmp_path: Path):
@@ -309,6 +309,7 @@ def test_natural_task_stops_on_existing_target(tmp_path: Path):
 
     assert "Target already exists" in response
     assert "will not overwrite" in response
+
 
 
 

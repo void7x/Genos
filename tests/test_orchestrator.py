@@ -171,3 +171,68 @@ def test_runtime_routes_natural_diagnosis(tmp_path: Path):
 
     assert "Project diagnosis:" in response
     assert "Evidence:" in response
+
+def test_root_cause_analysis_ranks_authentication_signals(tmp_path: Path):
+    (tmp_path / "auth.py").write_text(
+        "# authentication\n"
+        "import os\n"
+        "TOKEN = os.getenv('AUTH_TOKEN')\n"
+        "raise Exception('401 Unauthorized')\n",
+        encoding="utf-8",
+    )
+
+    orchestrator = AgentOrchestrator(tmp_path)
+
+    response = orchestrator.run(
+        "what is wrong with authentication"
+    )
+
+    assert "Likely causes:" in response
+    assert "Authentication credentials or token validation" in response
+    assert "confidence: high" in response
+
+
+def test_root_cause_analysis_detects_auth_configuration(tmp_path: Path):
+    (tmp_path / "auth.py").write_text(
+        "import os\n"
+        "SECRET = os.getenv('CLIENT_SECRET')\n"
+        "def login():\n"
+        "    return SECRET\n",
+        encoding="utf-8",
+    )
+
+    orchestrator = AgentOrchestrator(tmp_path)
+
+    response = orchestrator.run(
+        "what is wrong with login"
+    )
+
+    assert "Likely causes:" in response
+    assert "Missing or misconfigured authentication configuration" in response
+
+
+def test_root_cause_analysis_is_read_only(tmp_path: Path):
+    target = tmp_path / "auth.py"
+    original = "def login():\n    return True\n"
+    target.write_text(original, encoding="utf-8")
+
+    orchestrator = AgentOrchestrator(tmp_path)
+
+    response = orchestrator.run(
+        "what is wrong with authentication"
+    )
+
+    assert "No files were modified." in response
+    assert target.read_text(encoding="utf-8") == original
+
+
+def test_root_cause_analysis_handles_unknown_problem(tmp_path: Path):
+    orchestrator = AgentOrchestrator(tmp_path)
+
+    response = orchestrator.run(
+        "why is this project failing"
+    )
+
+    assert "Likely causes:" in response
+    assert "No strong root-cause signal was detected" in response
+
