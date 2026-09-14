@@ -5,6 +5,7 @@ from pathlib import Path
 from app.chat.intent import IntentRouter
 from app.chat.context import ConversationContext
 from app.agent import AgentOrchestrator, AgentWorkflow
+from app.agent.task_planner import TaskPlanner
 from app.conversation.repository import ConversationRepository
 from app.goals.models import Goal
 from app.goals.repository import GoalRepository
@@ -50,6 +51,7 @@ class GenosRuntime:
         self.permissions = PermissionManager()
         self.action_tools = ProjectActionTools(self.root, self.permissions)
         self.intent_router = IntentRouter()
+        self.task_planner = TaskPlanner()
         self.orchestrator = AgentOrchestrator(self.root)
         self.verifier = VerificationEngine(self.root, self.action_tools)
         self.verifier = VerificationEngine(self.root, self.action_tools)
@@ -450,6 +452,62 @@ class GenosRuntime:
             return response
 
         intent = self.intent_router.route(text)
+
+        task_plan = self.task_planner.plan(text)
+
+        if task_plan is not None:
+            lines = [
+                "Plan:",
+                f"Task: {task_plan.action.replace('_', ' ').title()}",
+            ]
+
+            if task_plan.target:
+                lines.append(f"Target: {task_plan.target}")
+
+            if task_plan.details:
+                lines.append(f"Details: {task_plan.details}")
+
+            if task_plan.permission:
+                lines.extend(
+                    [
+                        "",
+                        f"Permission required: {task_plan.permission}",
+                    ]
+                )
+
+            lines.extend(
+                [
+                    "",
+                    "Steps:",
+                    *[
+                        f"{index}. {step}"
+                        for index, step in enumerate(task_plan.steps, 1)
+                    ],
+                ]
+            )
+
+            if (
+                task_plan.action == "create_file"
+                and task_plan.target
+                and task_plan.details
+            ):
+                response = self.workflow.plan_write(
+                    task_plan.target,
+                    task_plan.details,
+                )
+            else:
+                response = "\n".join(lines)
+
+                if task_plan.action == "create_file":
+                    response += (
+                        "\n\n"
+                        "I need the intended file content "
+                        "before I can create it."
+                    )
+
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
 
         if intent.name == "context_file":
             relative_path = self.context.last_file()
