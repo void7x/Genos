@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -9,7 +9,7 @@ from app.goals.models import Goal
 from app.goals.repository import GoalRepository
 from app.memory import MemoryManager, MemoryRepository
 from app.permissions import PermissionLevel, PermissionManager
-from app.tools import ProjectTools
+from app.tools import ProjectActionTools, ProjectTools
 from app.workspace import (
     ProjectInspector,
     WorkspaceManager,
@@ -46,6 +46,7 @@ class GenosRuntime:
         self.inspector = ProjectInspector()
         self.tools = ProjectTools(self.root)
         self.permissions = PermissionManager()
+        self.action_tools = ProjectActionTools(self.root, self.permissions)
         self.intent_router = IntentRouter()
         self.orchestrator = AgentOrchestrator(self.root)
 
@@ -169,6 +170,167 @@ class GenosRuntime:
                 self.conversation.append_turn("user", text)
                 self.conversation.append_turn("assistant", response)
                 return response
+        if normalized in {
+            "grant safe write",
+            "allow safe write",
+            "enable safe write",
+        }:
+            self.permissions.grant(PermissionLevel.SAFE_WRITE)
+            response = "SAFE_WRITE permission granted."
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if normalized in {
+            "grant destructive",
+            "allow destructive",
+            "enable destructive",
+        }:
+            self.permissions.grant(PermissionLevel.DESTRUCTIVE)
+            response = "DESTRUCTIVE permission granted."
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if normalized in {
+            "revoke destructive",
+            "disable destructive",
+        }:
+            self.permissions.revoke(PermissionLevel.DESTRUCTIVE)
+            response = "DESTRUCTIVE permission revoked."
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if normalized in {
+            "grant execute",
+            "allow execute",
+            "enable execute",
+        }:
+            self.permissions.grant(PermissionLevel.EXECUTE)
+            response = "EXECUTE permission granted."
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if normalized in {
+            "revoke safe write",
+            "disable safe write",
+        }:
+            self.permissions.revoke(PermissionLevel.SAFE_WRITE)
+            response = "SAFE_WRITE permission revoked."
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if normalized in {
+            "revoke execute",
+            "disable execute",
+        }:
+            self.permissions.revoke(PermissionLevel.EXECUTE)
+            response = "EXECUTE permission revoked."
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        write_prefixes = (
+            "write file ",
+            "create file ",
+            "overwrite file ",
+        )
+
+        for prefix in write_prefixes:
+            if normalized.startswith(prefix):
+                payload = text[len(prefix):].strip()
+
+                if " :: " not in payload:
+                    response = (
+                        "Write format: write file <path> :: <content>"
+                    )
+                else:
+                    relative_path, content = payload.split(
+                        " :: ",
+                        1,
+                    )
+                    overwrite = normalized.startswith("overwrite file ")
+
+                    result = self.action_tools.write_file(
+                        relative_path.strip(),
+                        content,
+                        overwrite=overwrite,
+                    )
+                    response = (
+                        result.output
+                        if result.success
+                        else result.error
+                    )
+
+                self.conversation.append_turn("user", text)
+                self.conversation.append_turn("assistant", response)
+                return response
+
+        for prefix in (
+            "delete file ",
+            "remove file ",
+        ):
+            if normalized.startswith(prefix):
+                relative_path = text[len(prefix):].strip()
+                result = self.action_tools.delete_file(relative_path)
+                response = (
+                    result.output
+                    if result.success
+                    else result.error
+                )
+
+                self.conversation.append_turn("user", text)
+                self.conversation.append_turn("assistant", response)
+                return response
+
+        for prefix in (
+            "execute ",
+            "run command ",
+        ):
+            if normalized.startswith(prefix):
+                command = text[len(prefix):].strip()
+
+                if command.casefold() == "tests":
+                    command = "python -m pytest -q"
+
+                result = self.action_tools.execute_command(command)
+                response = (
+                    result.output
+                    if result.success
+                    else result.error
+                )
+
+                if result.success and not response:
+                    response = "Command completed successfully."
+
+                self.conversation.append_turn("user", text)
+                self.conversation.append_turn("assistant", response)
+                return response
+
+        if normalized in {
+            "run tests",
+            "run the tests",
+            "execute tests",
+        }:
+            result = self.action_tools.execute_command(
+                "python -m pytest -q"
+            )
+            response = (
+                result.output
+                if result.success
+                else result.error
+            )
+
+            if result.success and not response:
+                response = "Tests completed successfully."
+
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
         intent = self.intent_router.route(text)
 
         if intent.name == "empty":
@@ -477,6 +639,7 @@ class GenosRuntime:
 
 def main() -> None:
     GenosRuntime(Path.cwd()).run()
+
 
 
 

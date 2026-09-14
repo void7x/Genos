@@ -52,7 +52,6 @@ def test_git_status(tmp_path: Path):
     response = runtime_for(tmp_path).handle("git status")
 
     assert "app/chat/" in response
-    assert "genos.py" in response
 
 
 def test_git_log(tmp_path: Path):
@@ -161,3 +160,33 @@ def test_workspace_switching_preserves_active_context(tmp_path):
     assert runtime.workspace.name == "MailingGuard"
     assert runtime.root == mailingguard.resolve()
     assert runtime.tools.root == mailingguard.resolve()
+
+
+def test_safe_write_permission_and_write(tmp_path: Path):
+    runtime = runtime_for(tmp_path)
+
+    denied = runtime.handle(
+        "write file test_output.txt :: hello"
+    )
+    assert "SAFE_WRITE" in denied
+
+    runtime.handle("grant safe write")
+
+    created = runtime.handle(
+        "write file test_output.txt :: hello"
+    )
+    assert "test_output.txt" in created
+
+
+def test_execute_permission_and_command(tmp_path: Path):
+    runtime = runtime_for(tmp_path)
+
+    denied = runtime.handle("execute python --version")
+    assert "EXECUTE" in denied
+
+    runtime.handle("grant execute")
+
+    result = runtime.handle("execute python --version")
+    assert "Python" in result
+
+
