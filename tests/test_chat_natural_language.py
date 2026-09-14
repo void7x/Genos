@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from app.chat import GenosRuntime
 from app.chat.intent import IntentRouter
@@ -128,3 +128,37 @@ def test_intent_router_preserves_argument_case():
 
     assert intent.name == "goal"
     assert intent.argument == "Build the Genos Chatbot"
+
+
+def test_permission_synonyms():
+    router = IntentRouter()
+
+    assert router.route("grant safe write").name == "grant_safe_write"
+    assert router.route("give me permission to edit files").name == "grant_safe_write"
+    assert router.route("allow me to modify files").name == "grant_safe_write"
+
+    assert router.route("grant execute").name == "grant_execute"
+    assert router.route("let me run commands").name == "grant_execute"
+
+    assert router.route("grant destructive").name == "grant_destructive"
+    assert router.route("let me delete files").name == "grant_destructive"
+
+
+def test_workspace_synonyms():
+    router = IntentRouter()
+
+    assert router.route("list my workspaces").name == "workspace_list"
+    assert router.route("what projects are available").name == "workspace_list"
+
+    assert router.route("go to MailingGuard").name == "workspace_switch"
+    assert router.route("work on MailingGuard").name == "workspace_switch"
+    assert router.route("move to MailingGuard").name == "workspace_switch"
+
+
+def test_action_synonyms():
+    router = IntentRouter()
+
+    assert router.route("remove file notes.txt").name == "delete_file"
+    assert router.route("run the tests").name == "run_tests"
+    assert router.route("verify the project").name == "verify_project"
+    assert router.route("verify file README.md").name == "verify_file"

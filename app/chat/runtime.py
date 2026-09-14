@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -447,7 +447,62 @@ class GenosRuntime:
             self.conversation.append_turn("user", text)
             self.conversation.append_turn("assistant", response)
             return response
+
         intent = self.intent_router.route(text)
+
+        semantic_responses = {
+            "approve": lambda: self.workflow.approve(),
+            "deny": lambda: self.workflow.deny(),
+            "grant_safe_write": lambda: self._grant_permission(
+                PermissionLevel.SAFE_WRITE
+            ),
+            "grant_execute": lambda: self._grant_permission(
+                PermissionLevel.EXECUTE
+            ),
+            "grant_destructive": lambda: self._grant_permission(
+                PermissionLevel.DESTRUCTIVE
+            ),
+            "revoke_safe_write": lambda: self._revoke_permission(
+                PermissionLevel.SAFE_WRITE
+            ),
+            "revoke_execute": lambda: self._revoke_permission(
+                PermissionLevel.EXECUTE
+            ),
+            "revoke_destructive": lambda: self._revoke_permission(
+                PermissionLevel.DESTRUCTIVE
+            ),
+            "workspace_list": self._workspace_list,
+            "workspace_switch": lambda: self._switch_workspace(
+                intent.argument
+            ),
+            "delete_file": lambda: self._delete_file_natural(
+                intent.argument
+            ),
+            "run_tests": lambda: self._run_tests_natural(),
+            "verify_project": lambda: self._verification_response(
+                self.verifier.verify_project()
+            ),
+            "verify_git": lambda: self._verification_response(
+                self.verifier.verify_git()
+            ),
+            "verify_tests": lambda: self._verification_response(
+                self.verifier.verify_tests()
+            ),
+            "verify_file": lambda: self._verification_response(
+                self.verifier.verify_file(intent.argument)
+            ),
+            "natural_project_status": lambda: self.workflow.plan_write(
+                "notes/project_status.md",
+                "# Project Status\n\n" + self._project_info() + "\n",
+            ),
+        }
+
+        if intent.name in semantic_responses:
+            response = semantic_responses[intent.name]()
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
 
         if intent.name == "empty":
             response = (
@@ -614,6 +669,25 @@ class GenosRuntime:
             )
 
         return "\n".join(lines)
+
+
+    def _grant_permission(self, permission: PermissionLevel) -> str:
+        self.permissions.grant(permission)
+        return f"{permission.name} permission granted."
+
+    def _revoke_permission(self, permission: PermissionLevel) -> str:
+        self.permissions.revoke(permission)
+        return f"{permission.name} permission revoked."
+
+    def _delete_file_natural(self, relative_path: str) -> str:
+        result = self.action_tools.delete_file(relative_path)
+        return result.output if result.success else result.error
+
+    def _run_tests_natural(self) -> str:
+        result = self.action_tools.execute_command(
+            "python -m pytest -q"
+        )
+        return result.output if result.success else result.error
 
     def _capabilities(self) -> str:
         return "\n".join(
