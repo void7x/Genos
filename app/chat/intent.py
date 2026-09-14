@@ -325,6 +325,36 @@ class IntentRouter:
                     original[len(prefix):].strip().strip('"'),
                 )
 
+        # Conversational follow-up
+        if text in {
+            "what did you find",
+            "what did you find?",
+            "what did you see",
+            "what did you see?",
+            "tell me more",
+            "tell me more about that",
+            "explain that",
+            "explain it",
+            "what about it",
+            "what about that",
+        }:
+            return Intent("context_followup")
+
+        # Natural contextual file references
+        if text in {
+            "read that file",
+            "read this file",
+            "read the one you found",
+            "read the one you just found",
+            "open that file",
+            "open this file",
+            "open the one you found",
+            "open the one you just found",
+            "show that file",
+            "show this file",
+        }:
+            return Intent("context_file")
+
         # Natural delete
         for prefix in (
             "delete file ",

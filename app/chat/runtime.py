@@ -1,8 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
 from app.chat.intent import IntentRouter
+from app.chat.context import ConversationContext
 from app.agent import AgentOrchestrator, AgentWorkflow
 from app.conversation.repository import ConversationRepository
 from app.goals.models import Goal
@@ -71,6 +72,7 @@ class GenosRuntime:
         self.conversation = ConversationRepository(
             data / "conversation" / f"{self.workspace.id}.json"
         )
+        self.context = ConversationContext(self.conversation)
 
     def _activate_workspace(self, workspace) -> None:
         self.workspace = workspace
@@ -82,6 +84,7 @@ class GenosRuntime:
         self.conversation = ConversationRepository(
             self.data_root / "conversation" / f"{workspace.id}.json"
         )
+        self.context = ConversationContext(self.conversation)
 
     def _workspace_list(self) -> str:
         workspaces = self.workspace_manager.list()
@@ -155,8 +158,6 @@ class GenosRuntime:
             if normalized.startswith(prefix):
                 target = text[len(prefix):].strip()
                 response = self._switch_workspace(target)
-                self.conversation.append_turn("user", text)
-                self.conversation.append_turn("assistant", response)
                 return response
         for prefix in (
             "attach ",
@@ -450,6 +451,40 @@ class GenosRuntime:
 
         intent = self.intent_router.route(text)
 
+        if intent.name == "context_file":
+            relative_path = self.context.last_file()
+
+            if not relative_path:
+                response = (
+                    "I do not have a recent file reference to use yet."
+                )
+            else:
+                result = self.tools.read_file(relative_path)
+                response = (
+                    result.output
+                    if result.success
+                    else result.error
+                )
+
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if intent.name == "context_followup":
+            previous = self.context.previous_response()
+
+            if previous:
+                response = (
+                    "Based on the previous step:\n"
+                    + previous
+                )
+            else:
+                response = "There is no previous result to refer to yet."
+
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
         semantic_responses = {
             "approve": lambda: self.workflow.approve(),
             "deny": lambda: self.workflow.deny(),
@@ -496,6 +531,9 @@ class GenosRuntime:
                 "# Project Status\n\n" + self._project_info() + "\n",
             ),
         }
+
+        if intent.name == "workspace_switch":
+            return self._switch_workspace(intent.argument)
 
         if intent.name in semantic_responses:
             response = semantic_responses[intent.name]()
@@ -560,7 +598,14 @@ class GenosRuntime:
             response = result.output if result.success else result.error
 
         elif intent.name == "read_file":
-            result = self.tools.read_file(intent.argument)
+            relative_path = self.context.resolve_file_reference(
+                intent.argument
+            )
+
+            if not relative_path:
+                relative_path = self.context.resolve_main_file()
+
+            result = self.tools.read_file(relative_path)
 
             response = (
                 result.output
