@@ -1,6 +1,4 @@
-﻿"""Structured long-term goals for Genos."""
-
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -28,12 +26,14 @@ class Goal:
     priority: str = "medium"
     created_at: str = field(default="", compare=False)
     updated_at: str = field(default="", compare=False)
+    workspace_id: str = field(default="", compare=False)
 
     def __post_init__(self) -> None:
         title = " ".join(self.title.strip().split())
         description = " ".join(self.description.strip().split())
         status = self.status.strip().lower()
         priority = self.priority.strip().lower()
+        workspace_id = self.workspace_id.strip()
 
         if not title:
             raise ValueError("Goal title cannot be empty.")
@@ -50,5 +50,6 @@ class Goal:
         object.__setattr__(self, "description", description)
         object.__setattr__(self, "status", status)
         object.__setattr__(self, "priority", priority)
+        object.__setattr__(self, "workspace_id", workspace_id)
         object.__setattr__(self, "created_at", self.created_at or now)
         object.__setattr__(self, "updated_at", self.updated_at or now)

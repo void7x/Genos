@@ -1,7 +1,6 @@
-﻿"""Persistent storage for structured goals."""
+﻿from __future__ import annotations
 
-from __future__ import annotations
-
+import hashlib
 import json
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -12,17 +11,33 @@ from app.goals.models import Goal
 
 
 class GoalRepository:
-    """Store goals as JSON while keeping storage details out of the rest of Genos."""
-
     def __init__(self, path: Path):
         self.path = Path(path)
 
-    def list(self) -> list[Goal]:
-        if not self.path.exists():
+    def _path(self, workspace_id: str | None = None) -> Path:
+        if workspace_id is None:
+            return self.path
+
+        normalized = str(workspace_id).strip()
+
+        if not normalized:
+            raise ValueError("Workspace ID cannot be empty.")
+
+        safe_name = hashlib.sha256(
+            normalized.encode("utf-8")
+        ).hexdigest()
+
+        scoped_root = self.path.parent / f"{self.path.stem}_workspaces"
+        return scoped_root / safe_name / self.path.name
+
+    def list(self, workspace_id: str | None = None) -> list[Goal]:
+        path = self._path(workspace_id)
+
+        if not path.exists():
             return []
 
         try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
+            raw = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             return []
 
@@ -36,6 +51,8 @@ class GoalRepository:
                 continue
 
             try:
+                stored_workspace = str(item.get("workspace_id", "")).strip()
+
                 goals.append(
                     Goal(
                         title=item.get("title", ""),
@@ -44,46 +61,92 @@ class GoalRepository:
                         priority=item.get("priority", "medium"),
                         created_at=item.get("created_at", ""),
                         updated_at=item.get("updated_at", ""),
+                        workspace_id=stored_workspace,
                     )
                 )
             except ValueError:
                 continue
 
-        return goals
+        if workspace_id is None:
+            return goals
 
-    def save(self, goals: list[Goal]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        normalized = str(workspace_id).strip()
+
+        return [
+            goal
+            for goal in goals
+            if goal.workspace_id == normalized
+        ]
+
+    def save(
+        self,
+        goals: list[Goal],
+        workspace_id: str | None = None,
+    ) -> None:
+        path = self._path(workspace_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
 
         payload = [asdict(goal) for goal in goals]
 
-        self.path.write_text(
+        path.write_text(
             json.dumps(payload, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
 
-    def add(self, goal: Goal) -> Goal:
-        goals = self.list()
+    def add(
+        self,
+        goal: Goal,
+        workspace_id: str | None = None,
+    ) -> Goal:
+        normalized_workspace = (
+            goal.workspace_id
+            if workspace_id is None
+            else str(workspace_id).strip()
+        )
+
+        if workspace_id is not None and not normalized_workspace:
+            raise ValueError("Workspace ID cannot be empty.")
+
+        scoped_goal = (
+            goal
+            if goal.workspace_id == normalized_workspace
+            else Goal(
+                title=goal.title,
+                description=goal.description,
+                status=goal.status,
+                priority=goal.priority,
+                created_at=goal.created_at,
+                updated_at=goal.updated_at,
+                workspace_id=normalized_workspace,
+            )
+        )
+
+        goals = self.list(workspace_id)
 
         if any(
-            existing.title.casefold() == goal.title.casefold()
+            existing.title.casefold() == scoped_goal.title.casefold()
             for existing in goals
         ):
-            return goal
+            return scoped_goal
 
-        goals.append(goal)
-        self.save(goals)
-        return goal
+        goals.append(scoped_goal)
+        self.save(goals, workspace_id)
 
-    def update_status(self, title: str, status: str) -> Goal | None:
-        """Update an existing goal's status and persist the change."""
+        return scoped_goal
+
+    def update_status(
+        self,
+        title: str,
+        status: str,
+        workspace_id: str | None = None,
+    ) -> Goal | None:
         normalized_title = " ".join(title.strip().split())
 
         if not normalized_title:
             return None
 
         normalized_status = status.strip().lower()
-
-        goals = self.list()
+        goals = self.list(workspace_id)
 
         for index, existing in enumerate(goals):
             if existing.title.casefold() != normalized_title.casefold():
@@ -96,10 +159,11 @@ class GoalRepository:
                 priority=existing.priority,
                 created_at=existing.created_at,
                 updated_at=datetime.now(timezone.utc).isoformat(),
+                workspace_id=existing.workspace_id,
             )
 
             goals[index] = updated
-            self.save(goals)
+            self.save(goals, workspace_id)
             return updated
 
         return None
@@ -107,8 +171,8 @@ class GoalRepository:
     def apply_lifecycle_intent(
         self,
         intent: GoalLifecycleIntent,
+        workspace_id: str | None = None,
     ) -> Goal | None:
-        """Apply a lifecycle action to an existing goal."""
         status_by_action = {
             "complete": "completed",
             "pause": "paused",
@@ -118,4 +182,8 @@ class GoalRepository:
 
         status = status_by_action[intent.action]
 
-        return self.update_status(intent.goal_title, status)
+        return self.update_status(
+            intent.goal_title,
+            status,
+            workspace_id,
+        )
