@@ -30,23 +30,51 @@ class ProjectInspector:
         if not root.is_dir():
             raise ValueError(f"Project is not a directory: {root}")
 
-        files = {
+        root_files = {
             item.name.casefold()
             for item in root.iterdir()
             if item.is_file()
         }
-        dirs = {
+
+        root_dirs = {
             item.name.casefold()
             for item in root.iterdir()
             if item.is_dir()
         }
 
-        languages = self._languages(files)
-        project_type = self._project_type(files, dirs)
-        frameworks = self._frameworks(root, files, project_type)
+        code_files = {
+            item.name.casefold()
+            for item in root.rglob("*")
+            if item.is_file()
+            and not any(
+                part.casefold()
+                in {
+                    ".git",
+                    ".venv",
+                    "venv",
+                    "__pycache__",
+                    ".pytest_cache",
+                    "node_modules",
+                }
+                for part in item.relative_to(root).parts
+            )
+        }
+
+        languages = self._languages(code_files)
+        project_type = self._project_type(
+            root_files,
+            root_dirs,
+            code_files,
+        )
+        frameworks = self._frameworks(
+            root,
+            root_files,
+            project_type,
+        )
 
         source_dirs = tuple(
-            name for name in (
+            name
+            for name in (
                 "src",
                 "app",
                 "lib",
@@ -54,16 +82,17 @@ class ProjectInspector:
                 "backend",
                 "frontend",
             )
-            if name in dirs
+            if name in root_dirs
         )
 
         test_dirs = tuple(
-            name for name in (
+            name
+            for name in (
                 "tests",
                 "test",
                 "__tests__",
             )
-            if name in dirs
+            if name in root_dirs
         )
 
         readme = next(
@@ -81,13 +110,27 @@ class ProjectInspector:
         )
 
         is_git_repo = (root / ".git").exists()
-        git_branch = self._git(root, "branch", "--show-current") if is_git_repo else None
-        git_status = self._git(root, "status", "--porcelain") if is_git_repo else None
-        git_clean = git_status == "" if is_git_repo and git_status is not None else None
+        git_branch = (
+            self._git(root, "branch", "--show-current")
+            if is_git_repo
+            else None
+        )
+
+        git_status = (
+            self._git(root, "status", "--porcelain")
+            if is_git_repo
+            else None
+        )
+
+        git_clean = (
+            git_status == ""
+            if is_git_repo and git_status is not None
+            else None
+        )
 
         run_commands, test_commands = self._commands(
             root,
-            files,
+            root_files,
             project_type,
         )
 
@@ -119,11 +162,11 @@ class ProjectInspector:
             found.append("TypeScript")
         if any(name.endswith(".java") for name in files):
             found.append("Java")
-        if any(name.endswith((".go",)) for name in files):
+        if any(name.endswith(".go") for name in files):
             found.append("Go")
-        if any(name.endswith((".rs",)) for name in files):
+        if any(name.endswith(".rs") for name in files):
             found.append("Rust")
-        if any(name.endswith((".cs",)) for name in files):
+        if any(name.endswith(".cs") for name in files):
             found.append("C#")
         if any(name.endswith((".cpp", ".cc", ".cxx", ".hpp", ".h")) for name in files):
             found.append("C/C++")
@@ -131,8 +174,16 @@ class ProjectInspector:
         return tuple(found)
 
     @staticmethod
-    def _project_type(files: set[str], dirs: set[str]) -> str:
-        if "pyproject.toml" in files or "requirements.txt" in files or "setup.py" in files:
+    def _project_type(
+        files: set[str],
+        dirs: set[str],
+        code_files: set[str],
+    ) -> str:
+        if (
+            "pyproject.toml" in files
+            or "requirements.txt" in files
+            or "setup.py" in files
+        ):
             return "Python"
 
         if "package.json" in files:
@@ -140,7 +191,11 @@ class ProjectInspector:
                 return "Next.js"
             return "Node.js"
 
-        if "pom.xml" in files or "build.gradle" in files or "build.gradle.kts" in files:
+        if (
+            "pom.xml" in files
+            or "build.gradle" in files
+            or "build.gradle.kts" in files
+        ):
             return "Java"
 
         if "go.mod" in files:
@@ -155,21 +210,37 @@ class ProjectInspector:
         if "dockerfile" in files:
             return "Containerized"
 
-        if "src" in dirs and any(name.endswith((".ts", ".tsx", ".js", ".jsx")) for name in files):
+        if any(name.endswith(".py") for name in code_files):
+            return "Python"
+
+        if any(
+            name.endswith((".ts", ".tsx", ".js", ".jsx"))
+            for name in code_files
+        ):
             return "JavaScript/TypeScript"
+
+        if "src" in dirs:
+            return "Source Project"
 
         return "Unknown"
 
     @staticmethod
-    def _frameworks(root: Path, files: set[str], project_type: str) -> tuple[str, ...]:
+    def _frameworks(
+        root: Path,
+        files: set[str],
+        project_type: str,
+    ) -> tuple[str, ...]:
         found: list[str] = []
 
         if project_type == "Python":
             if (root / "manage.py").is_file():
                 found.append("Django")
+
             if (root / "requirements.txt").is_file():
                 try:
-                    text = (root / "requirements.txt").read_text(
+                    text = (
+                        root / "requirements.txt"
+                    ).read_text(
                         encoding="utf-8",
                         errors="ignore",
                     ).casefold()
@@ -251,10 +322,10 @@ class ProjectInspector:
                 test.append("npm test")
 
         if project_type == "Python":
-            if "pytest" in files or (root / "tests").is_dir():
+            if (root / "tests").is_dir():
                 test.append("python -m pytest")
 
-            if (root / "app").is_dir() and (root / "app" / "main.py").is_file():
+            if (root / "app" / "main.py").is_file():
                 run.append("python -m app.main")
 
         if "docker-compose.yml" in files:

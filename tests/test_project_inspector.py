@@ -8,7 +8,10 @@ def test_inspector_detects_python_project(tmp_path: Path):
     (tmp_path / "tests").mkdir()
     (tmp_path / "main.py").write_text("print('hi')", encoding="utf-8")
     (tmp_path / "README.md").write_text("# Demo", encoding="utf-8")
-    (tmp_path / "requirements.txt").write_text("pytest\nfastapi\n", encoding="utf-8")
+    (tmp_path / "requirements.txt").write_text(
+        "pytest\nfastapi\n",
+        encoding="utf-8",
+    )
 
     info = ProjectInspector().inspect(tmp_path)
 
@@ -23,8 +26,25 @@ def test_inspector_detects_python_project(tmp_path: Path):
     assert info.run_commands == ()
 
 
+def test_inspector_detects_nested_python_code(tmp_path: Path):
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "main.py").write_text(
+        "print('Genos')",
+        encoding="utf-8",
+    )
+
+    info = ProjectInspector().inspect(tmp_path)
+
+    assert info.project_type == "Python"
+    assert info.languages == ("Python",)
+
+
 def test_inspector_detects_node_react_vite(tmp_path: Path):
     (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.jsx").write_text(
+        "export default function App() {}",
+        encoding="utf-8",
+    )
     (tmp_path / "package.json").write_text(
         '{"dependencies":{"react":"1"},"devDependencies":{"vite":"1"},'
         '"scripts":{"dev":"vite","test":"vitest"}}',
@@ -34,7 +54,7 @@ def test_inspector_detects_node_react_vite(tmp_path: Path):
     info = ProjectInspector().inspect(tmp_path)
 
     assert info.project_type == "Node.js"
-    assert info.languages == ()
+    assert info.languages == ("JavaScript",)
     assert set(info.frameworks) == {"React", "Vite"}
     assert info.source_dirs == ("src",)
     assert info.run_commands == ("npm run dev",)
@@ -74,7 +94,10 @@ def test_inspector_reads_java_project(tmp_path: Path):
 
 
 def test_inspector_detects_docker_compose(tmp_path: Path):
-    (tmp_path / "docker-compose.yml").write_text("services: {}", encoding="utf-8")
+    (tmp_path / "docker-compose.yml").write_text(
+        "services: {}",
+        encoding="utf-8",
+    )
 
     info = ProjectInspector().inspect(tmp_path)
 
