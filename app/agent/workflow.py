@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.agent.rollback import RollbackManager
 from app.memory import MemoryManager
 from app.permissions import PermissionLevel, PermissionManager
 from app.tools import ProjectActionTools
@@ -153,6 +154,7 @@ class AgentWorkflow:
                 "Type 'approve' to continue or 'deny' to cancel.",
             ]
         )
+
     def plan_execute(self, command: str) -> str:
         command = command.strip()
 
@@ -266,6 +268,12 @@ class AgentWorkflow:
         )
 
     def _perform_edit(self, plan: WorkflowPlan) -> str:
+        rollback = RollbackManager(self.root)
+        snapshot = rollback.snapshot(
+            plan.target,
+            plan.original_content,
+        )
+
         result = self.action_tools.write_file(
             plan.target,
             plan.details,
@@ -286,6 +294,8 @@ class AgentWorkflow:
         )
 
         if not verification.success:
+            rollback_result = rollback.restore(snapshot)
+
             return "\n".join(
                 [
                     "ACT: SUCCESS",
@@ -293,6 +303,13 @@ class AgentWorkflow:
                     "",
                     "VERIFY: FAILED",
                     verification.summary,
+                    "",
+                    (
+                        "ROLLBACK: PASSED"
+                        if rollback_result.success
+                        else "ROLLBACK: FAILED"
+                    ),
+                    rollback_result.summary,
                 ]
             )
 
@@ -344,6 +361,3 @@ class AgentWorkflow:
                 "REMEMBER: Saved workflow completion to project memory.",
             ]
         )
-
-
-

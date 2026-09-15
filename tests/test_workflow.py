@@ -143,3 +143,49 @@ def test_workflow_rejects_existing_target(tmp_path: Path):
     assert "will not overwrite" in response
     assert workflow.pending is None
     assert target.read_text(encoding="utf-8") == "old"
+
+def test_workflow_edit_rolls_back_when_verification_fails(tmp_path: Path):
+    permissions = PermissionManager()
+    permissions.grant(PermissionLevel.SAFE_WRITE)
+
+    target = tmp_path / "config.py"
+    target.write_text("old = True\n", encoding="utf-8")
+
+    actions = ProjectActionTools(tmp_path, permissions)
+    memory = MemoryManager(
+        MemoryRepository(tmp_path / "memory")
+    )
+
+    class FailingVerifier:
+        def verify_file(
+            self,
+            relative_path: str,
+            expected_content: str | None = None,
+        ):
+            from app.verification.engine import VerificationResult
+
+            return VerificationResult(
+                False,
+                f"Forced verification failure: {relative_path}",
+            )
+
+    workflow = AgentWorkflow(
+        tmp_path,
+        permissions,
+        actions,
+        FailingVerifier(),
+        memory,
+        "workspace-test",
+    )
+
+    workflow.plan_edit(
+        "config.py",
+        "new = False\n",
+    )
+
+    response = workflow.approve()
+
+    assert "ACT: SUCCESS" in response
+    assert "VERIFY: FAILED" in response
+    assert "ROLLBACK: PASSED" in response
+    assert target.read_text(encoding="utf-8") == "old = True\n"
