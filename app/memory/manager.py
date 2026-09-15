@@ -176,11 +176,19 @@ class MemoryManager:
             tag_text = " ".join(memory.tags)
             haystack = f"{text} {tag_text}"
 
-            score = sum(
+            content_score = sum(
                 1
                 for term in terms
-                if term in haystack
+                if term in text
             )
+
+            tag_score = sum(
+                2
+                for term in terms
+                if term in tag_text
+            )
+
+            score = content_score + tag_score
 
             if score:
                 scored.append((score, index, memory))

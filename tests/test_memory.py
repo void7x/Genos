@@ -100,3 +100,46 @@ def test_empty_workspace_is_rejected(tmp_path):
         assert "Workspace ID" in str(exc)
     else:
         raise AssertionError("Expected ValueError")
+
+def test_memory_search_uses_tags_for_relevance(tmp_path):
+    manager = manager_for(tmp_path)
+
+    manager.add(
+        "workspace-a",
+        "The service starts normally",
+        ("authentication", "security"),
+    )
+    manager.add(
+        "workspace-a",
+        "Authentication uses tokens",
+        ("api",),
+    )
+
+    result = manager.search(
+        "workspace-a",
+        "authentication",
+    )
+
+    assert result[0].content == "The service starts normally"
+
+
+def test_memory_search_returns_strongest_match_first(tmp_path):
+    manager = manager_for(tmp_path)
+
+    manager.add(
+        "workspace-a",
+        "Python backend service",
+        ("stack",),
+    )
+    manager.add(
+        "workspace-a",
+        "Authentication service",
+        ("authentication", "security"),
+    )
+
+    result = manager.search(
+        "workspace-a",
+        "authentication security",
+    )
+
+    assert result[0].content == "Authentication service"
