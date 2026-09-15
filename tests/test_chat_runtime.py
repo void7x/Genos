@@ -57,7 +57,7 @@ def test_git_status(tmp_path: Path):
 def test_git_log(tmp_path: Path):
     response = runtime_for(tmp_path).handle("git log")
 
-    assert "Implement permissions v1" in response
+    assert "Implement root cause analysis v1" in response
 
 
 def test_memory_is_workspace_scoped(tmp_path: Path):
@@ -309,6 +309,9 @@ def test_natural_task_stops_on_existing_target(tmp_path: Path):
 
     assert "Target already exists" in response
     assert "will not overwrite" in response
+
+
+
 
 
 
