@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from app.permissions import PermissionLevel, PermissionManager
-from app.tools import ProjectActionTools
+from app.tools import ProjectActionTools, ToolResult
 from app.verification import VerificationEngine
 
 
@@ -83,4 +83,29 @@ def test_verify_tests_requires_execute(tmp_path: Path):
 
     assert result.success is False
     assert "EXECUTE" in result.summary
-    assert result.checks == ("pytest command executed",)
+    assert result.checks[0] == "pytest command executed"
+
+
+def test_verify_tests_returns_structured_failure_evidence(tmp_path: Path):
+    class FakeActionTools:
+        def execute_command(self, command):
+            return ToolResult(
+                False,
+                "",
+                (
+                    "tests/test_auth.py::test_login FAILED\n"
+                    "E   AssertionError: expected token\n"
+                    "1 failed"
+                ),
+            )
+
+    engine = VerificationEngine(
+        tmp_path,
+        FakeActionTools(),
+    )
+
+    result = engine.verify_tests()
+
+    assert result.success is False
+    assert result.checks[0] == "pytest command executed"
+    assert "1 test(s) failed" in result.checks[1]

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.agent.test_failure_analyzer import TestFailureAnalyzer
 from app.tools import ProjectActionTools, ProjectTools
 
 
@@ -112,10 +113,15 @@ class VerificationEngine:
 
         if not result.success:
             details = result.error or result.output
+            report = TestFailureAnalyzer().analyze(details)
+
             return VerificationResult(
                 False,
                 f"Test verification failed: {details}",
-                ("pytest command executed",),
+                (
+                    "pytest command executed",
+                    report.summary,
+                ),
             )
 
         return VerificationResult(
