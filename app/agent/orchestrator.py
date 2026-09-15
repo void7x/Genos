@@ -454,6 +454,7 @@ class AgentOrchestrator:
         causes = self._rank_root_causes(
             query=query,
             inspected=inspected,
+            test_evidence=test_evidence,
             git=git.output if git.success else git.error,
         )
 
@@ -553,6 +554,30 @@ class AgentOrchestrator:
 
         lines.extend(
             [
+                "",
+                "Correlated evidence:",
+            ]
+        )
+
+        if test_evidence and relevant:
+            lines.append(
+                f"- {len(relevant)} source match(es) and "
+                f"{len(test_evidence)} related test match(es) "
+                "were compared together."
+            )
+
+            for item in test_evidence:
+                lines.append(
+                    f"- Test: {item['path']}"
+                )
+        else:
+            lines.append(
+                "- No source/test evidence overlap was available."
+            )
+
+        lines.extend(
+            [
+                "",
                 "Likely causes:",
             ]
         )
@@ -656,14 +681,26 @@ class AgentOrchestrator:
     def _rank_root_causes(
         query: str,
         inspected: list[dict[str, str]],
+        test_evidence: list[dict[str, str]],
         git: str,
     ) -> list[dict[str, str]]:
         query_text = query.casefold()
 
-        combined = "\n".join(
+        source_text = "\n".join(
             item.get("content", "")
             for item in inspected
         ).casefold()
+
+        test_text = "\n".join(
+            item.get("content", "")
+            for item in test_evidence
+        ).casefold()
+
+        combined = (
+            source_text
+            + "\n"
+            + test_text
+        )
 
         causes = []
 
@@ -682,6 +719,15 @@ class AgentOrchestrator:
                 }
             )
 
+        def has_any(
+            content: str,
+            markers: tuple[str, ...],
+        ) -> bool:
+            return any(
+                marker in content
+                for marker in markers
+            )
+
         auth_related = any(
             marker in query_text
             for marker in (
@@ -692,92 +738,175 @@ class AgentOrchestrator:
             )
         )
 
+        auth_failure_signals = (
+            "401",
+            "unauthorized",
+            "invalid token",
+            "token expired",
+            "jwt",
+            "authorizationerror",
+        )
+
+        auth_config_signals = (
+            "os.getenv(",
+            "os.environ",
+            "environment.get",
+            "secret",
+            "client_secret",
+            "api_key",
+        )
+
+        auth_flow_signals = (
+            "oauth",
+            "openid",
+            "authorization_code",
+            "redirect_uri",
+            "callback",
+        )
+
+        failure_signals = (
+            "traceback",
+            "exception",
+            "raise ",
+            "error",
+            "failed",
+        )
+
         if auth_related:
-            if any(
-                marker in combined
-                for marker in (
-                    "401",
-                    "unauthorized",
-                    "invalid token",
-                    "token expired",
-                    "jwt",
-                    "authorizationerror",
-                )
-            ):
+            source_failure = has_any(
+                source_text,
+                auth_failure_signals,
+            )
+            test_failure = has_any(
+                test_text,
+                auth_failure_signals,
+            )
+
+            source_config = has_any(
+                source_text,
+                auth_config_signals,
+            )
+            test_config = has_any(
+                test_text,
+                auth_config_signals,
+            )
+
+            source_flow = has_any(
+                source_text,
+                auth_flow_signals,
+            )
+            test_flow = has_any(
+                test_text,
+                auth_flow_signals,
+            )
+
+            if source_failure:
+                if test_failure:
+                    add(
+                        "Authentication credentials or token validation",
+                        "high",
+                        (
+                            "Source code contains authentication failure "
+                            "signals and related tests contain the same "
+                            "failure signature, so both evidence sources "
+                            "support this cause."
+                        ),
+                        120,
+                    )
+                else:
+                    add(
+                        "Authentication credentials or token validation",
+                        "high",
+                        (
+                            "The inspected source contains authentication "
+                            "failure signals such as 401/Unauthorized, "
+                            "invalid-token handling, JWT validation, or an "
+                            "authentication exception."
+                        ),
+                        100,
+                    )
+
+            if source_config:
+                if test_config:
+                    add(
+                        "Missing or misconfigured authentication configuration",
+                        "high",
+                        (
+                            "The source reads authentication secrets or "
+                            "environment configuration, and related tests "
+                            "also exercise configuration-dependent "
+                            "authentication behavior."
+                        ),
+                        110,
+                    )
+                else:
+                    add(
+                        "Missing or misconfigured authentication configuration",
+                        "high",
+                        (
+                            "The inspected code reads secrets or environment "
+                            "configuration, making missing or incorrect "
+                            "authentication configuration a plausible cause."
+                        ),
+                        90,
+                    )
+
+            if source_flow:
+                if test_flow:
+                    add(
+                        "Authentication flow or callback configuration",
+                        "high",
+                        (
+                            "Both source and test evidence contain "
+                            "OAuth/OpenID-style flow elements, strengthening "
+                            "the case for a redirect, callback, or provider "
+                            "configuration problem."
+                        ),
+                        95,
+                    )
+                else:
+                    add(
+                        "Authentication flow or callback configuration",
+                        "medium",
+                        (
+                            "The inspected code contains OAuth/OpenID-style "
+                            "flow elements, so redirect, callback, or provider "
+                            "configuration may be involved."
+                        ),
+                        75,
+                    )
+
+        source_failure = has_any(
+            source_text,
+            failure_signals,
+        )
+        test_failure = has_any(
+            test_text,
+            failure_signals,
+        )
+
+        if source_failure:
+            if test_failure:
                 add(
-                    "Authentication credentials or token validation",
+                    "Unhandled exception or failure path",
                     "high",
                     (
-                        "The inspected code contains authentication "
-                        "failure signals such as 401/Unauthorized, "
-                        "invalid-token handling, JWT validation, or an "
-                        "authentication exception."
+                        "Both inspected source and related test evidence "
+                        "contain explicit exception, error, or failure "
+                        "signals, indicating a correlated failure path."
                     ),
-                    100,
+                    80,
                 )
-
-            if any(
-                marker in combined
-                for marker in (
-                    "os.getenv(",
-                    "os.environ",
-                    "environment.get",
-                    "secret",
-                    "client_secret",
-                    "api_key",
-                )
-            ):
+            else:
                 add(
-                    "Missing or misconfigured authentication configuration",
-                    "high",
-                    (
-                        "The inspected code reads secrets or environment "
-                        "configuration, making missing or incorrect "
-                        "authentication configuration a plausible cause."
-                    ),
-                    90,
-                )
-
-            if any(
-                marker in combined
-                for marker in (
-                    "oauth",
-                    "openid",
-                    "authorization_code",
-                    "redirect_uri",
-                    "callback",
-                )
-            ):
-                add(
-                    "Authentication flow or callback configuration",
+                    "Unhandled exception or failure path",
                     "medium",
                     (
-                        "The inspected code contains OAuth/OpenID-style "
-                        "flow elements, so redirect, callback, or provider "
-                        "configuration may be involved."
+                        "The inspected code contains exception, error, or "
+                        "failure signals that may explain the reported problem."
                     ),
-                    75,
+                    60,
                 )
-
-        if any(
-            marker in combined
-            for marker in (
-                "traceback",
-                "exception",
-                "raise ",
-                "error",
-                "failed",
-            )
-        ):
-            add(
-                "Unhandled exception or failure path",
-                "medium",
-                (
-                    "The inspected code contains exception, error, or "
-                    "failure signals that may explain the reported problem."
-                ),
-                60,
-            )
 
         if any(
             marker in git.casefold()
@@ -845,6 +974,7 @@ class AgentOrchestrator:
                 files.output if files.success else files.error,
             ]
         )
+
 
 
 

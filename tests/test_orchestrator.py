@@ -282,3 +282,30 @@ def test_issue_diagnosis_reports_missing_test_evidence(tmp_path: Path):
 
     assert "Test evidence:" in response
     assert "No directly related test evidence found." in response
+
+def test_issue_diagnosis_correlates_source_and_test_evidence(tmp_path: Path):
+    (tmp_path / "auth.py").write_text(
+        "# authentication\n"
+        "raise Exception('401 Unauthorized')\n",
+        encoding="utf-8",
+    )
+
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+
+    (tests_dir / "test_auth.py").write_text(
+        "# authentication\n"
+        "def test_authentication_failure():\n"
+        "    raise Exception('401 Unauthorized')\n",
+        encoding="utf-8",
+    )
+
+    orchestrator = AgentOrchestrator(tmp_path)
+
+    response = orchestrator.run(
+        "what is wrong with authentication"
+    )
+
+    assert "Correlated evidence:" in response
+    assert "test_auth.py" in response
+    assert "both evidence sources" in response
