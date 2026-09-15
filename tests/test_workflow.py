@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from app.chat.runtime import GenosRuntime
+from app.agent.action_history import ActionHistoryManager, ActionHistoryRepository
 from app.memory import MemoryManager, MemoryRepository
 from app.permissions import PermissionLevel, PermissionManager
 from app.tools import ProjectActionTools
@@ -188,4 +189,106 @@ def test_workflow_edit_rolls_back_when_verification_fails(tmp_path: Path):
     assert "ACT: SUCCESS" in response
     assert "VERIFY: FAILED" in response
     assert "ROLLBACK: PASSED" in response
+    assert target.read_text(encoding="utf-8") == "old = True\n"
+
+
+def test_workflow_records_successful_edit_in_history(tmp_path: Path):
+    permissions = PermissionManager()
+    permissions.grant(PermissionLevel.SAFE_WRITE)
+
+    target = tmp_path / "config.py"
+    target.write_text("old = True\n", encoding="utf-8")
+
+    actions = ProjectActionTools(tmp_path, permissions)
+    memory = MemoryManager(
+        MemoryRepository(tmp_path / "memory")
+    )
+    history = ActionHistoryManager(
+        ActionHistoryRepository(tmp_path / "history")
+    )
+    verifier = VerificationEngine(tmp_path, actions)
+
+    workflow = AgentWorkflow(
+        tmp_path,
+        permissions,
+        actions,
+        verifier,
+        memory,
+        "workspace-test",
+        history,
+    )
+
+    workflow.plan_edit(
+        "config.py",
+        "new = False\n",
+    )
+
+    response = workflow.approve()
+
+    assert "VERIFY: PASSED" in response
+
+    entries = history.list("workspace-test")
+
+    assert len(entries) == 1
+    assert entries[0].action == "edit"
+    assert entries[0].target == "config.py"
+    assert entries[0].status == "success"
+    assert entries[0].verification == "passed"
+
+
+def test_workflow_records_failed_edit_and_rollback_in_history(tmp_path: Path):
+    permissions = PermissionManager()
+    permissions.grant(PermissionLevel.SAFE_WRITE)
+
+    target = tmp_path / "config.py"
+    target.write_text("old = True\n", encoding="utf-8")
+
+    actions = ProjectActionTools(tmp_path, permissions)
+    memory = MemoryManager(
+        MemoryRepository(tmp_path / "memory")
+    )
+    history = ActionHistoryManager(
+        ActionHistoryRepository(tmp_path / "history")
+    )
+
+    class FailingVerifier:
+        def verify_file(
+            self,
+            relative_path: str,
+            expected_content: str | None = None,
+        ):
+            from app.verification.engine import VerificationResult
+
+            return VerificationResult(
+                False,
+                f"Forced verification failure: {relative_path}",
+            )
+
+    workflow = AgentWorkflow(
+        tmp_path,
+        permissions,
+        actions,
+        FailingVerifier(),
+        memory,
+        "workspace-test",
+        history,
+    )
+
+    workflow.plan_edit(
+        "config.py",
+        "new = False\n",
+    )
+
+    response = workflow.approve()
+
+    assert "VERIFY: FAILED" in response
+    assert "ROLLBACK: PASSED" in response
+
+    entries = history.list("workspace-test")
+
+    assert len(entries) == 1
+    assert entries[0].action == "edit"
+    assert entries[0].status == "failed"
+    assert entries[0].verification == "failed"
+    assert entries[0].rollback == "passed"
     assert target.read_text(encoding="utf-8") == "old = True\n"

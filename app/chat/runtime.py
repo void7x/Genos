@@ -5,6 +5,7 @@ from pathlib import Path
 from app.chat.intent import IntentRouter
 from app.chat.context import ConversationContext
 from app.agent import AgentOrchestrator, AgentWorkflow
+from app.agent.action_history import ActionHistoryManager, ActionHistoryRepository
 from app.agent.task_planner import TaskPlanner
 from app.agent.coding_executor import CodingTaskExecutor
 from app.conversation.repository import ConversationRepository
@@ -62,6 +63,10 @@ class GenosRuntime:
             MemoryRepository(data / "memory")
         )
 
+        self.history = ActionHistoryManager(
+            ActionHistoryRepository(data / "history")
+        )
+
         self.workflow = AgentWorkflow(
             self.root,
             self.permissions,
@@ -69,6 +74,7 @@ class GenosRuntime:
             self.verifier,
             self.memory,
             self.workspace.id,
+            self.history,
         )
 
         self.goals = GoalRepository(data / "goals.json")

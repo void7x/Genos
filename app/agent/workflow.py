@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.agent.action_history import ActionHistoryManager
 from app.agent.rollback import RollbackManager
 from app.memory import MemoryManager
 from app.permissions import PermissionLevel, PermissionManager
@@ -35,6 +36,7 @@ class AgentWorkflow:
         verifier: VerificationEngine,
         memory: MemoryManager,
         workspace_id: str,
+        history: ActionHistoryManager | None = None,
     ):
         self.root = (
             Path(workspace_path)
@@ -52,6 +54,7 @@ class AgentWorkflow:
         self.verifier = verifier
         self.memory = memory
         self.workspace_id = workspace_id
+        self.history = history
         self.pending: PendingAction | None = None
 
     def plan_write(
@@ -226,6 +229,15 @@ class AgentWorkflow:
         )
 
         if not result.success:
+            if self.history is not None:
+                self.history.add(
+                    self.workspace_id,
+                    action="write",
+                    target=plan.target,
+                    status="failed",
+                    summary=result.error,
+                )
+
             return "\n".join(
                 [
                     "ACT: FAILED",
@@ -239,6 +251,16 @@ class AgentWorkflow:
         )
 
         if not verification.success:
+            if self.history is not None:
+                self.history.add(
+                    self.workspace_id,
+                    action="write",
+                    target=plan.target,
+                    status="failed",
+                    verification="failed",
+                    summary=verification.summary,
+                )
+
             return "\n".join(
                 [
                     "ACT: SUCCESS",
@@ -247,6 +269,16 @@ class AgentWorkflow:
                     "VERIFY: FAILED",
                     verification.summary,
                 ]
+            )
+
+        if self.history is not None:
+            self.history.add(
+                self.workspace_id,
+                action="write",
+                target=plan.target,
+                status="success",
+                verification="passed",
+                summary="Created file successfully.",
             )
 
         self.memory.add(
@@ -281,6 +313,15 @@ class AgentWorkflow:
         )
 
         if not result.success:
+            if self.history is not None:
+                self.history.add(
+                    self.workspace_id,
+                    action="edit",
+                    target=plan.target,
+                    status="failed",
+                    summary=result.error,
+                )
+
             return "\n".join(
                 [
                     "ACT: FAILED",
@@ -295,6 +336,21 @@ class AgentWorkflow:
 
         if not verification.success:
             rollback_result = rollback.restore(snapshot)
+
+            if self.history is not None:
+                self.history.add(
+                    self.workspace_id,
+                    action="edit",
+                    target=plan.target,
+                    status="failed",
+                    verification="failed",
+                    rollback=(
+                        "passed"
+                        if rollback_result.success
+                        else "failed"
+                    ),
+                    summary=verification.summary,
+                )
 
             return "\n".join(
                 [
@@ -311,6 +367,16 @@ class AgentWorkflow:
                     ),
                     rollback_result.summary,
                 ]
+            )
+
+        if self.history is not None:
+            self.history.add(
+                self.workspace_id,
+                action="edit",
+                target=plan.target,
+                status="success",
+                verification="passed",
+                summary="Edited file successfully.",
             )
 
         self.memory.add(
@@ -335,11 +401,30 @@ class AgentWorkflow:
         result = self.action_tools.execute_command(plan.target)
 
         if not result.success:
+            if self.history is not None:
+                self.history.add(
+                    self.workspace_id,
+                    action="execute",
+                    target=plan.target,
+                    status="failed",
+                    summary=result.error or result.output,
+                )
+
             return "\n".join(
                 [
                     "ACT: FAILED",
                     result.error or result.output,
                 ]
+            )
+
+        if self.history is not None:
+            self.history.add(
+                self.workspace_id,
+                action="execute",
+                target=plan.target,
+                status="success",
+                verification="passed",
+                summary="Command returned success.",
             )
 
         self.memory.add(
