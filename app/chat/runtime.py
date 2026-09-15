@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -12,6 +12,7 @@ from app.conversation.repository import ConversationRepository
 from app.goals.models import Goal
 from app.goals.repository import GoalRepository
 from app.memory import MemoryManager, MemoryRepository
+from app.tasks import TaskManager, TaskRepository
 from app.permissions import PermissionLevel, PermissionManager
 from app.tools import ProjectActionTools, ProjectTools
 from app.verification import VerificationEngine
@@ -67,6 +68,12 @@ class GenosRuntime:
             ActionHistoryRepository(data / "history")
         )
 
+        self.goals = GoalRepository(data / "goals.json")
+
+        self.tasks = TaskManager(
+            TaskRepository(data / "tasks")
+        )
+
         self.workflow = AgentWorkflow(
             self.root,
             self.permissions,
@@ -75,9 +82,8 @@ class GenosRuntime:
             self.memory,
             self.workspace.id,
             self.history,
+            self.tasks,
         )
-
-        self.goals = GoalRepository(data / "goals.json")
 
         self.conversation = ConversationRepository(
             data / "conversation" / f"{self.workspace.id}.json"
@@ -88,13 +94,124 @@ class GenosRuntime:
         self.workspace = workspace
         self.root = Path(workspace.path).resolve(strict=True)
         self.tools = ProjectTools(self.root)
+        self.action_tools = ProjectActionTools(
+            self.root,
+            self.permissions,
+        )
         self.orchestrator = AgentOrchestrator(self.root)
-        self.verifier = VerificationEngine(self.root, self.action_tools)
-        self.verifier = VerificationEngine(self.root, self.action_tools)
+        self.verifier = VerificationEngine(
+            self.root,
+            self.action_tools,
+        )
+        self.workflow = AgentWorkflow(
+            self.root,
+            self.permissions,
+            self.action_tools,
+            self.verifier,
+            self.memory,
+            self.workspace.id,
+            self.history,
+            self.tasks,
+        )
         self.conversation = ConversationRepository(
             self.data_root / "conversation" / f"{workspace.id}.json"
         )
         self.context = ConversationContext(self.conversation)
+
+    def _tasks(self) -> str:
+        tasks = self.tasks.list(self.workspace.id)
+
+        if not tasks:
+            return "No tasks for this workspace."
+
+        return "\n".join(
+            f"- [{task.status}] {task.id}: "
+            f"{task.title} (goal: {task.goal_title})"
+            for task in tasks
+        )
+
+    def _current_task(self) -> str:
+        task = self.tasks.current(self.workspace.id)
+
+        if task is None:
+            return "No current task."
+
+        return (
+            f"Current task: [{task.status}] {task.title}\n"
+            f"Task ID: {task.id}\n"
+            f"Goal: {task.goal_title}"
+        )
+
+    def _add_task(
+        self,
+        title: str,
+        goal_title: str | None = None,
+    ) -> str:
+        normalized_title = " ".join(title.strip().split())
+
+        if not normalized_title:
+            return "Task title cannot be empty."
+
+        selected_goal = None
+
+        if goal_title:
+            normalized_goal = " ".join(
+                goal_title.strip().split()
+            )
+
+            selected_goal = next(
+                (
+                    goal
+                    for goal in self.goals.list(
+                        self.workspace.id
+                    )
+                    if (
+                        goal.title.casefold()
+                        == normalized_goal.casefold()
+                        and goal.status == "active"
+                    )
+                ),
+                None,
+            )
+
+            if selected_goal is None:
+                return (
+                    f"Active goal not found: "
+                    f"{normalized_goal}"
+                )
+
+        selected_goal = (
+            selected_goal
+            or next(
+                (
+                    goal
+                    for goal in self.goals.list(
+                        self.workspace.id
+                    )
+                    if goal.status == "active"
+                ),
+                None,
+            )
+        )
+
+        if selected_goal is None:
+            return (
+                "Create an active goal before "
+                "adding a task."
+            )
+
+        task = self.tasks.add(
+            self.workspace.id,
+            normalized_title,
+            selected_goal.title,
+        )
+
+        return (
+            f"Task created: {task.title}\n"
+            f"Task ID: {task.id}\n"
+            f"Goal: {task.goal_title}\n"
+            f"Status: {task.status}"
+        )
 
     def _workspace_list(self) -> str:
         workspaces = self.workspace_manager.list()
@@ -254,6 +371,49 @@ class GenosRuntime:
         }:
             self.permissions.revoke(PermissionLevel.EXECUTE)
             response = "EXECUTE permission revoked."
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if normalized in {
+            "show tasks",
+            "list tasks",
+            "what tasks are active",
+        }:
+            response = self._tasks()
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if normalized in {
+            "show current task",
+            "current task",
+            "what am i working on",
+        }:
+            response = self._current_task()
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
+        if normalized.startswith("add task "):
+            payload = text[len("add task "):].strip()
+            goal_marker = " to goal "
+            folded = payload.casefold()
+
+            if goal_marker in folded:
+                marker_index = folded.index(goal_marker)
+                task_title = payload[:marker_index].strip()
+                goal_title = payload[
+                    marker_index + len(goal_marker):
+                ].strip()
+
+                response = self._add_task(
+                    task_title,
+                    goal_title,
+                )
+            else:
+                response = self._add_task(payload)
+
             self.conversation.append_turn("user", text)
             self.conversation.append_turn("assistant", response)
             return response

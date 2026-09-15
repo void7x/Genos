@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,6 +7,7 @@ from app.agent.action_history import ActionHistoryManager
 from app.agent.rollback import RollbackManager
 from app.memory import MemoryManager
 from app.permissions import PermissionLevel, PermissionManager
+from app.tasks import TaskManager
 from app.tools import ProjectActionTools
 from app.verification import VerificationEngine
 
@@ -17,6 +18,7 @@ class WorkflowPlan:
     target: str
     details: str = ""
     original_content: str = ""
+    task_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,7 @@ class AgentWorkflow:
         memory: MemoryManager,
         workspace_id: str,
         history: ActionHistoryManager | None = None,
+        task_manager: TaskManager | None = None,
     ):
         self.root = (
             Path(workspace_path)
@@ -55,6 +58,7 @@ class AgentWorkflow:
         self.memory = memory
         self.workspace_id = workspace_id
         self.history = history
+        self.task_manager = task_manager
         self.pending: PendingAction | None = None
 
     def plan_write(
@@ -81,12 +85,23 @@ class AgentWorkflow:
                 "Use the explicit 'overwrite file' command when you intend to replace it."
             )
 
+        current_task = (
+            self.task_manager.current(self.workspace_id)
+            if self.task_manager is not None
+            else None
+        )
+
         self.pending = PendingAction(
             PermissionLevel.SAFE_WRITE,
             WorkflowPlan(
                 action="write",
                 target=target,
                 details=content,
+                task_id=(
+                    current_task.id
+                    if current_task is not None
+                    else ""
+                ),
             ),
         )
 
@@ -135,6 +150,12 @@ class AgentWorkflow:
         if original == new_content:
             return f"No changes required: {target}"
 
+        current_task = (
+            self.task_manager.current(self.workspace_id)
+            if self.task_manager is not None
+            else None
+        )
+
         self.pending = PendingAction(
             PermissionLevel.SAFE_WRITE,
             WorkflowPlan(
@@ -142,6 +163,11 @@ class AgentWorkflow:
                 target=target,
                 details=new_content,
                 original_content=original,
+                task_id=(
+                    current_task.id
+                    if current_task is not None
+                    else ""
+                ),
             ),
         )
 
@@ -164,11 +190,22 @@ class AgentWorkflow:
         if not command:
             return "Command cannot be empty."
 
+        current_task = (
+            self.task_manager.current(self.workspace_id)
+            if self.task_manager is not None
+            else None
+        )
+
         self.pending = PendingAction(
             PermissionLevel.EXECUTE,
             WorkflowPlan(
                 action="execute",
                 target=command,
+                task_id=(
+                    current_task.id
+                    if current_task is not None
+                    else ""
+                ),
             ),
         )
 
@@ -200,6 +237,15 @@ class AgentWorkflow:
 
         self.pending = None
 
+        if (
+            self.task_manager is not None
+            and pending.plan.task_id
+        ):
+            self.task_manager.start(
+                self.workspace_id,
+                pending.plan.task_id,
+            )
+
         if pending.plan.action == "write":
             return self._perform_write(pending.plan)
 
@@ -229,6 +275,15 @@ class AgentWorkflow:
         )
 
         if not result.success:
+            if (
+                self.task_manager is not None
+                and plan.task_id
+            ):
+                self.task_manager.fail(
+                    self.workspace_id,
+                    plan.task_id,
+                )
+
             if self.history is not None:
                 self.history.add(
                     self.workspace_id,
@@ -251,6 +306,15 @@ class AgentWorkflow:
         )
 
         if not verification.success:
+            if (
+                self.task_manager is not None
+                and plan.task_id
+            ):
+                self.task_manager.fail(
+                    self.workspace_id,
+                    plan.task_id,
+                )
+
             if self.history is not None:
                 self.history.add(
                     self.workspace_id,
@@ -269,6 +333,15 @@ class AgentWorkflow:
                     "VERIFY: FAILED",
                     verification.summary,
                 ]
+            )
+
+        if (
+            self.task_manager is not None
+            and plan.task_id
+        ):
+            self.task_manager.complete(
+                self.workspace_id,
+                plan.task_id,
             )
 
         if self.history is not None:
@@ -313,6 +386,15 @@ class AgentWorkflow:
         )
 
         if not result.success:
+            if (
+                self.task_manager is not None
+                and plan.task_id
+            ):
+                self.task_manager.fail(
+                    self.workspace_id,
+                    plan.task_id,
+                )
+
             if self.history is not None:
                 self.history.add(
                     self.workspace_id,
@@ -336,6 +418,15 @@ class AgentWorkflow:
 
         if not verification.success:
             rollback_result = rollback.restore(snapshot)
+
+            if (
+                self.task_manager is not None
+                and plan.task_id
+            ):
+                self.task_manager.fail(
+                    self.workspace_id,
+                    plan.task_id,
+                )
 
             if self.history is not None:
                 self.history.add(
@@ -367,6 +458,15 @@ class AgentWorkflow:
                     ),
                     rollback_result.summary,
                 ]
+            )
+
+        if (
+            self.task_manager is not None
+            and plan.task_id
+        ):
+            self.task_manager.complete(
+                self.workspace_id,
+                plan.task_id,
             )
 
         if self.history is not None:
@@ -401,6 +501,15 @@ class AgentWorkflow:
         result = self.action_tools.execute_command(plan.target)
 
         if not result.success:
+            if (
+                self.task_manager is not None
+                and plan.task_id
+            ):
+                self.task_manager.fail(
+                    self.workspace_id,
+                    plan.task_id,
+                )
+
             if self.history is not None:
                 self.history.add(
                     self.workspace_id,
@@ -415,6 +524,15 @@ class AgentWorkflow:
                     "ACT: FAILED",
                     result.error or result.output,
                 ]
+            )
+
+        if (
+            self.task_manager is not None
+            and plan.task_id
+        ):
+            self.task_manager.complete(
+                self.workspace_id,
+                plan.task_id,
             )
 
         if self.history is not None:
