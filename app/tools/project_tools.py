@@ -74,6 +74,13 @@ class ProjectTools:
             if any(part.casefold() in ignored_dirs for part in path.relative_to(self.root).parts):
                 continue
 
+            relative = path.relative_to(self.root)
+            relative_text = str(relative)
+
+            if normalized in relative_text.casefold():
+                matches.append(relative_text)
+                continue
+
             try:
                 content = path.read_text(
                     encoding="utf-8",
@@ -83,8 +90,7 @@ class ProjectTools:
                 continue
 
             if normalized in content.casefold():
-                relative = path.relative_to(self.root)
-                matches.append(str(relative))
+                matches.append(relative_text)
 
         return ToolResult(True, "\n".join(sorted(matches, key=str.casefold)))
 
@@ -142,3 +148,4 @@ class ProjectTools:
             ) from exc
 
         return resolved
+

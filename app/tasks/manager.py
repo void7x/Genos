@@ -47,17 +47,9 @@ class TaskManager:
         tasks = self.list(workspace_id)
 
         for status in ("in_progress", "planned"):
-            match = next(
-                (
-                    task
-                    for task in tasks
-                    if task.status == status
-                ),
-                None,
-            )
-
-            if match is not None:
-                return match
+            for task in reversed(tasks):
+                if task.status == status:
+                    return task
 
         return None
 

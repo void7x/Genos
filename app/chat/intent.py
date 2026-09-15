@@ -1,5 +1,6 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -56,6 +57,10 @@ class IntentRouter:
                 "tell me about this project",
                 "describe this project",
                 "explain this project",
+                "inspect this project",
+                "inspect the project",
+                "understand this project",
+                "inspect project",
             )
         ) or text in {"project", "project info", "project details"}:
             return Intent("project_info")
@@ -149,9 +154,23 @@ class IntentRouter:
                 "recent commits",
                 "show commits",
                 "what changed recently",
+                "show recent git history",
+                "show git history",
+                "recent git history",
             )
         ):
             return Intent("git_log")
+
+        if any(
+            phrase in text
+            for phrase in (
+                "git diff",
+                "show git diff",
+                "show repository diff",
+                "what changed in the working tree",
+            )
+        ):
+            return Intent("git_diff")
 
         if (
             text in {"goals", "show goals", "my goals"}
@@ -178,6 +197,24 @@ class IntentRouter:
             return Intent(
                 "remember",
                 original[len("remember "):].strip(),
+            )
+
+        if text.startswith("add goal "):
+            return Intent(
+                "goal",
+                original[len("add goal "):].strip(),
+            )
+
+        if text.startswith("create goal "):
+            return Intent(
+                "goal",
+                original[len("create goal "):].strip(),
+            )
+
+        if text.startswith("new goal "):
+            return Intent(
+                "goal",
+                original[len("new goal "):].strip(),
             )
 
         if text.startswith("goal "):
@@ -294,6 +331,21 @@ class IntentRouter:
         ):
             return Intent("revoke_destructive")
 
+        goal_lifecycle_match = re.match(
+            r"^(complete|pause|resume|cancel)\s+goal\s+(.+)$",
+            original,
+            re.IGNORECASE,
+        )
+
+        if goal_lifecycle_match:
+            action = goal_lifecycle_match.group(1)
+            title = goal_lifecycle_match.group(2).strip()
+
+            return Intent(
+                "goal_lifecycle",
+                f"{action} :: {title}",
+            )
+
         # Workspace discovery/switching
         if any(
             phrase in text
@@ -324,6 +376,15 @@ class IntentRouter:
                     "workspace_switch",
                     original[len(prefix):].strip().strip('"'),
                 )
+
+        if text in {
+            "what file did you just find",
+            "what file did you find",
+            "which file did you just find",
+            "which file did you find",
+            "what did you just find",
+        }:
+            return Intent("last_file")
 
         # Conversational follow-up
         if text in {
@@ -415,4 +476,15 @@ class IntentRouter:
         ) and "project status" in text:
             return Intent("natural_project_status")
 
+        if text in {
+            "show action history",
+            "show history",
+            "action history",
+            "what actions have you taken",
+            "what did genos do",
+            "what has genos done",
+        }:
+            return Intent("action_history")
+
         return Intent("unknown")
+

@@ -9,6 +9,7 @@ from app.agent.action_history import ActionHistoryManager, ActionHistoryReposito
 from app.agent.task_planner import TaskPlanner
 from app.agent.coding_executor import CodingTaskExecutor
 from app.conversation.repository import ConversationRepository
+from app.goals.lifecycle import GoalLifecycleIntent
 from app.goals.models import Goal
 from app.goals.repository import GoalRepository
 from app.memory import MemoryManager, MemoryRepository
@@ -180,19 +181,20 @@ class GenosRuntime:
                     f"{normalized_goal}"
                 )
 
-        selected_goal = (
-            selected_goal
-            or next(
-                (
-                    goal
-                    for goal in self.goals.list(
-                        self.workspace.id
-                    )
-                    if goal.status == "active"
-                ),
-                None,
+        if selected_goal is None:
+            active_goals = [
+                goal
+                for goal in self.goals.list(
+                    self.workspace.id
+                )
+                if goal.status == "active"
+            ]
+
+            selected_goal = (
+                active_goals[-1]
+                if active_goals
+                else None
             )
-        )
 
         if selected_goal is None:
             return (
@@ -312,6 +314,25 @@ class GenosRuntime:
                 self.conversation.append_turn("user", text)
                 self.conversation.append_turn("assistant", response)
                 return response
+        if normalized == "grant":
+            pending = self.workflow.pending
+
+            if pending is None:
+                response = (
+                    "There is no pending action requiring permission."
+                )
+            else:
+                permission = pending.permission
+                self.permissions.grant(permission)
+                response = (
+                    f"{permission.name} permission granted.\n"
+                    "Type 'approve' to continue."
+                )
+
+            self.conversation.append_turn("user", text)
+            self.conversation.append_turn("assistant", response)
+            return response
+
         if normalized in {
             "grant safe write",
             "allow safe write",
@@ -819,6 +840,12 @@ class GenosRuntime:
             return response
 
         semantic_responses = {
+            "git_diff": lambda: self._git_diff(),
+            "action_history": lambda: self._action_history(),
+            "last_file": lambda: self._last_file(),
+            "goal_lifecycle": lambda: self._goal_lifecycle(
+                intent.argument
+            ),
             "approve": lambda: self.workflow.approve(),
             "deny": lambda: self.workflow.deny(),
             "grant_safe_write": lambda: self._grant_permission(
@@ -1066,6 +1093,77 @@ class GenosRuntime:
             "python -m pytest -q"
         )
         return result.output if result.success else result.error
+
+    def _git_diff(self) -> str:
+        result = self.tools.git_diff()
+
+        if not result.success:
+            return result.error
+
+        return result.output or "Working tree has no diff."
+
+    def _action_history(self) -> str:
+        entries = self.history.list(self.workspace.id)
+
+        if not entries:
+            return "No action history for this workspace."
+
+        return "\n".join(
+            (
+                f"- [{entry.status}] {entry.action} "
+                f"{entry.target} | "
+                f"verify={entry.verification}"
+            )
+            for entry in entries[-10:]
+        )
+
+    def _last_file(self) -> str:
+        relative_path = self.context.last_file()
+
+        if not relative_path:
+            return "I do not have a recent file reference."
+
+        return f"Last found file: {relative_path}"
+
+    def _goal_lifecycle(self, argument: str) -> str:
+        if " :: " not in argument:
+            return "Goal lifecycle format is invalid."
+
+        action, goal_title = argument.split(
+            " :: ",
+            1,
+        )
+
+        status_by_action = {
+            "complete": "completed",
+            "pause": "paused",
+            "resume": "active",
+            "cancel": "cancelled",
+        }
+
+        normalized_action = action.strip().casefold()
+        normalized_title = " ".join(
+            goal_title.strip().split()
+        )
+
+        status = status_by_action.get(normalized_action)
+
+        if status is None:
+            return f"Unsupported goal action: {action}"
+
+        goal = self.goals.update_status(
+            normalized_title,
+            status,
+            self.workspace.id,
+        )
+
+        if goal is None:
+            return f"Goal not found: {normalized_title}"
+
+        return (
+            f"Goal: {goal.title}\n"
+            f"Status: {goal.status}"
+        )
 
     def _capabilities(self) -> str:
         return "\n".join(
