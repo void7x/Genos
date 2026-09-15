@@ -430,21 +430,26 @@ class AgentOrchestrator:
         for relative_path in relevant:
             result = self.tools.read_file(relative_path)
 
-            if result.success:
-                inspected.append(
-                    {
-                        "path": relative_path,
-                        "content": result.output,
-                    }
-                )
-            else:
-                inspected.append(
-                    {
-                        "path": relative_path,
-                        "content": "",
-                        "error": result.error,
-                    }
-                )
+            inspected.append(
+                {
+                    "path": relative_path,
+                    "content": (
+                        result.output
+                        if result.success
+                        else ""
+                    ),
+                    "error": (
+                        ""
+                        if result.success
+                        else result.error
+                    ),
+                }
+            )
+
+        test_evidence = self._collect_test_evidence(
+            query,
+            relevant,
+        )
 
         causes = self._rank_root_causes(
             query=query,
@@ -460,9 +465,18 @@ class AgentOrchestrator:
             f"Git clean: {info.git_clean}",
             "",
             "Evidence:",
-            f"- Files discovered: {len(files.output.splitlines()) if files.success else 0}",
-            f"- Source directories: {', '.join(info.source_dirs) if info.source_dirs else 'none detected'}",
-            f"- Test directories: {', '.join(info.test_dirs) if info.test_dirs else 'none detected'}",
+            (
+                f"- Files discovered: "
+                f"{len(files.output.splitlines()) if files.success else 0}"
+            ),
+            (
+                "- Source directories: "
+                f"{', '.join(info.source_dirs) if info.source_dirs else 'none detected'}"
+            ),
+            (
+                "- Test directories: "
+                f"{', '.join(info.test_dirs) if info.test_dirs else 'none detected'}"
+            ),
             "",
             "Git status:",
             git.output if git.success else git.error,
@@ -496,27 +510,20 @@ class AgentOrchestrator:
 
         if inspected:
             for item in inspected:
-                path = item["path"]
-
-                if item.get("error"):
-                    lines.extend(
-                        [
-                            f"[{path}]",
-                            f"Could not inspect file: {item['error']}",
-                            "",
-                        ]
-                    )
-                    continue
-
-                preview = item["content"][:1200].strip()
-
-                lines.extend(
-                    [
-                        f"[{path}]",
-                        preview,
-                        "",
-                    ]
+                lines.append(
+                    f"[{item['path']}]"
                 )
+
+                if item["error"]:
+                    lines.append(
+                        f"Could not inspect file: {item['error']}"
+                    )
+                else:
+                    lines.append(
+                        item["content"][:1200].strip()
+                    )
+
+                lines.append("")
         else:
             lines.append(
                 "- No matching files were available for inspection."
@@ -525,6 +532,27 @@ class AgentOrchestrator:
         lines.extend(
             [
                 "",
+                "Test evidence:",
+                "",
+            ]
+        )
+
+        if test_evidence:
+            for item in test_evidence:
+                lines.extend(
+                    [
+                        f"[{item['path']}]",
+                        item["content"][:1000].strip(),
+                        "",
+                    ]
+                )
+        else:
+            lines.append(
+                "- No directly related test evidence found."
+            )
+
+        lines.extend(
+            [
                 "Likely causes:",
             ]
         )
@@ -552,26 +580,78 @@ class AgentOrchestrator:
             [
                 "",
                 "Assessment:",
+                (
+                    "The diagnosis combines project structure, Git state, "
+                    "source evidence, and related test evidence."
+                ),
+                "No files were modified.",
             ]
-        )
-
-        if causes:
-            lines.append(
-                "The strongest available explanation is ranked from "
-                "local code, configuration, and Git evidence."
-            )
-        else:
-            lines.append(
-                "The evidence is currently insufficient to identify "
-                "a specific root cause."
-            )
-
-        lines.append(
-            "No files were modified."
         )
 
         return "\n".join(lines)
 
+    def _collect_test_evidence(
+        self,
+        query: str,
+        relevant: list[str],
+    ) -> list[dict[str, str]]:
+        if not query:
+            return []
+
+        normalized_query = query.casefold()
+        evidence = []
+
+        ignored_dirs = {
+            ".git",
+            ".venv",
+            "venv",
+            "__pycache__",
+            ".pytest_cache",
+            "node_modules",
+        }
+
+        for path in self.root.rglob("*"):
+            if not path.is_file():
+                continue
+
+            relative = path.relative_to(self.root)
+
+            if any(
+                part.casefold() in ignored_dirs
+                for part in relative.parts
+            ):
+                continue
+
+            path_text = str(relative).casefold()
+
+            if not (
+                "test" in path_text
+                or "tests" in path_text
+            ):
+                continue
+
+            try:
+                content = path.read_text(
+                    encoding="utf-8",
+                    errors="ignore",
+                )
+            except OSError:
+                continue
+
+            if normalized_query not in content.casefold():
+                continue
+
+            evidence.append(
+                {
+                    "path": str(relative),
+                    "content": content,
+                }
+            )
+
+            if len(evidence) >= 3:
+                break
+
+        return evidence
     @staticmethod
     def _rank_root_causes(
         query: str,
@@ -579,14 +659,15 @@ class AgentOrchestrator:
         git: str,
     ) -> list[dict[str, str]]:
         query_text = query.casefold()
+
         combined = "\n".join(
             item.get("content", "")
             for item in inspected
         ).casefold()
 
-        causes: list[dict[str, str]] = []
+        causes = []
 
-        def add_cause(
+        def add(
             title: str,
             confidence: str,
             reason: str,
@@ -597,7 +678,7 @@ class AgentOrchestrator:
                     "title": title,
                     "confidence": confidence,
                     "reason": reason,
-                    "_score": str(score),
+                    "score": score,
                 }
             )
 
@@ -623,12 +704,15 @@ class AgentOrchestrator:
                     "authorizationerror",
                 )
             ):
-                add_cause(
+                add(
                     "Authentication credentials or token validation",
                     "high",
-                    "inspected code contains an authentication failure signature such as "
-                    "401/Unauthorized, invalid-token handling, JWT validation, or an "
-                    "authentication exception.",
+                    (
+                        "The inspected code contains authentication "
+                        "failure signals such as 401/Unauthorized, "
+                        "invalid-token handling, JWT validation, or an "
+                        "authentication exception."
+                    ),
                     100,
                 )
 
@@ -643,12 +727,14 @@ class AgentOrchestrator:
                     "api_key",
                 )
             ):
-                add_cause(
+                add(
                     "Missing or misconfigured authentication configuration",
                     "high",
-                    "inspected code reads authentication secrets or environment "
-                    "configuration, so missing or incorrect runtime configuration "
-                    "is a plausible failure source.",
+                    (
+                        "The inspected code reads secrets or environment "
+                        "configuration, making missing or incorrect "
+                        "authentication configuration a plausible cause."
+                    ),
                     90,
                 )
 
@@ -662,11 +748,14 @@ class AgentOrchestrator:
                     "callback",
                 )
             ):
-                add_cause(
+                add(
                     "Authentication flow or callback configuration",
                     "medium",
-                    "the inspected code contains OAuth/OpenID-style flow elements, "
-                    "so redirect, callback, or provider configuration may be involved.",
+                    (
+                        "The inspected code contains OAuth/OpenID-style "
+                        "flow elements, so redirect, callback, or provider "
+                        "configuration may be involved."
+                    ),
                     75,
                 )
 
@@ -680,45 +769,48 @@ class AgentOrchestrator:
                 "failed",
             )
         ):
-            add_cause(
+            add(
                 "Unhandled exception or failure path",
                 "medium",
-                "the inspected code contains explicit exception, error, or failure "
-                "handling signals that may explain the reported problem.",
+                (
+                    "The inspected code contains exception, error, or "
+                    "failure signals that may explain the reported problem."
+                ),
                 60,
             )
 
         if any(
             marker in git.casefold()
             for marker in (
-                "ahead",
-                "behind",
-                "conflict",
                 "modified",
                 "untracked",
+                "conflict",
             )
         ):
-            add_cause(
+            add(
                 "Uncommitted or conflicting project state",
                 "low",
-                "Git reports local changes or another repository-state signal, "
-                "which can cause behavior to differ from the expected version.",
+                (
+                    "Git reports local changes or conflicting repository "
+                    "state, which can cause behavior to differ from the "
+                    "expected version."
+                ),
                 40,
             )
 
-        for cause in causes:
-            cause["_score"] = str(
-                -int(cause["_score"])
-            )
-
         causes.sort(
-            key=lambda item: int(item["_score"])
+            key=lambda item: item["score"],
+            reverse=True,
         )
 
-        for cause in causes:
-            cause.pop("_score", None)
-
-        return causes
+        return [
+            {
+                "title": item["title"],
+                "confidence": item["confidence"],
+                "reason": item["reason"],
+            }
+            for item in causes
+        ]
     def _run_project_diagnosis(self) -> str:
         from app.workspace import ProjectInspector
 
@@ -753,6 +845,8 @@ class AgentOrchestrator:
                 files.output if files.success else files.error,
             ]
         )
+
+
 
 
 

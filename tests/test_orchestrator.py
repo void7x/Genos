@@ -236,3 +236,49 @@ def test_root_cause_analysis_handles_unknown_problem(tmp_path: Path):
     assert "Likely causes:" in response
     assert "No strong root-cause signal was detected" in response
 
+
+def test_issue_diagnosis_includes_test_evidence(tmp_path: Path):
+    (tmp_path / "auth.py").write_text(
+        "# authentication\n"
+        "def login():\n"
+        "    return True\n",
+        encoding="utf-8",
+    )
+
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+
+    (tests_dir / "test_auth.py").write_text(
+        "# authentication\n"
+        "def test_authentication_login():\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+
+    orchestrator = AgentOrchestrator(tmp_path)
+
+    response = orchestrator.run(
+        "what is wrong with authentication"
+    )
+
+    assert "Test evidence:" in response
+    assert "test_auth.py" in response
+    assert "test_authentication_login" in response
+
+
+def test_issue_diagnosis_reports_missing_test_evidence(tmp_path: Path):
+    (tmp_path / "auth.py").write_text(
+        "# authentication\n"
+        "def login():\n"
+        "    return True\n",
+        encoding="utf-8",
+    )
+
+    orchestrator = AgentOrchestrator(tmp_path)
+
+    response = orchestrator.run(
+        "what is wrong with authentication"
+    )
+
+    assert "Test evidence:" in response
+    assert "No directly related test evidence found." in response
