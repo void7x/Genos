@@ -284,11 +284,26 @@ class GenosRuntime:
                         content,
                         overwrite=overwrite,
                     )
-                    response = (
-                        result.output
-                        if result.success
-                        else result.error
-                    )
+
+                    if result.success:
+                        self.history.add(
+                            self.workspace.id,
+                            action="write",
+                            target=relative_path.strip(),
+                            status="success",
+                            verification="not-run",
+                            summary=result.output,
+                        )
+                        response = result.output
+                    else:
+                        self.history.add(
+                            self.workspace.id,
+                            action="write",
+                            target=relative_path.strip(),
+                            status="failed",
+                            summary=result.error,
+                        )
+                        response = result.error
 
                 self.conversation.append_turn("user", text)
                 self.conversation.append_turn("assistant", response)
@@ -301,11 +316,26 @@ class GenosRuntime:
             if normalized.startswith(prefix):
                 relative_path = text[len(prefix):].strip()
                 result = self.action_tools.delete_file(relative_path)
-                response = (
-                    result.output
-                    if result.success
-                    else result.error
-                )
+
+                if result.success:
+                    self.history.add(
+                        self.workspace.id,
+                        action="delete",
+                        target=relative_path,
+                        status="success",
+                        verification="not-run",
+                        summary=result.output,
+                    )
+                    response = result.output
+                else:
+                    self.history.add(
+                        self.workspace.id,
+                        action="delete",
+                        target=relative_path,
+                        status="failed",
+                        summary=result.error,
+                    )
+                    response = result.error
 
                 self.conversation.append_turn("user", text)
                 self.conversation.append_turn("assistant", response)
@@ -322,11 +352,26 @@ class GenosRuntime:
                     command = "python -m pytest -q"
 
                 result = self.action_tools.execute_command(command)
-                response = (
-                    result.output
-                    if result.success
-                    else result.error
-                )
+
+                if result.success:
+                    self.history.add(
+                        self.workspace.id,
+                        action="execute",
+                        target=command,
+                        status="success",
+                        verification="not-run",
+                        summary=result.output,
+                    )
+                    response = result.output
+                else:
+                    self.history.add(
+                        self.workspace.id,
+                        action="execute",
+                        target=command,
+                        status="failed",
+                        summary=result.error,
+                    )
+                    response = result.error
 
                 if result.success and not response:
                     response = "Command completed successfully."
@@ -343,11 +388,26 @@ class GenosRuntime:
             result = self.action_tools.execute_command(
                 "python -m pytest -q"
             )
-            response = (
-                result.output
-                if result.success
-                else result.error
-            )
+
+            if result.success:
+                self.history.add(
+                    self.workspace.id,
+                    action="execute",
+                    target="python -m pytest -q",
+                    status="success",
+                    verification="not-run",
+                    summary=result.output,
+                )
+                response = result.output
+            else:
+                self.history.add(
+                    self.workspace.id,
+                    action="execute",
+                    target="python -m pytest -q",
+                    status="failed",
+                    summary=result.error,
+                )
+                response = result.error
 
             if result.success and not response:
                 response = "Tests completed successfully."
