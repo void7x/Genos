@@ -109,3 +109,74 @@ def test_verify_tests_returns_structured_failure_evidence(tmp_path: Path):
     assert result.success is False
     assert result.checks[0] == "pytest command executed"
     assert "1 test(s) failed" in result.checks[1]
+    assert result.recovery is not None
+    assert result.recovery.action == "diagnose_failure"
+    assert result.recovery.safe is False
+    assert "Recovery: diagnose_failure" in result.checks[2]
+
+def test_verify_tests_retries_once_for_transient_failure(tmp_path: Path):
+    class FakeActionTools:
+        def __init__(self):
+            self.calls = 0
+
+        def execute_command(self, command):
+            self.calls += 1
+
+            if self.calls == 1:
+                return ToolResult(
+                    False,
+                    "",
+                    "pytest timed out\n1 failed",
+                )
+
+            return ToolResult(
+                True,
+                "1 passed in 0.10s",
+                "",
+            )
+
+    actions = FakeActionTools()
+    engine = VerificationEngine(
+        tmp_path,
+        actions,
+    )
+
+    result = engine.verify_tests()
+
+    assert result.success is True
+    assert result.recovery is not None
+    assert result.recovery.action == "retry_tests"
+    assert result.recovery.safe is True
+    assert actions.calls == 2
+    assert "recovered after one retry" in result.summary
+    assert "pytest retry returned success" in result.checks
+
+def test_verify_tests_stops_after_one_failed_retry(tmp_path: Path):
+    class FakeActionTools:
+        def __init__(self):
+            self.calls = 0
+
+        def execute_command(self, command):
+            self.calls += 1
+
+            return ToolResult(
+                False,
+                "",
+                "pytest timed out\n1 failed",
+            )
+
+    actions = FakeActionTools()
+    engine = VerificationEngine(
+        tmp_path,
+        actions,
+    )
+
+    result = engine.verify_tests()
+
+    assert result.success is False
+    assert result.recovery is not None
+    assert result.recovery.action == "retry_tests"
+    assert result.recovery.safe is True
+    assert actions.calls == 2
+    assert "failed after one retry" in result.summary
+    assert "pytest retry returned failure" in result.checks

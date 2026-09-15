@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.agent.error_recovery import ErrorRecoveryEngine, RecoveryDecision
 from app.agent.test_failure_analyzer import TestFailureAnalyzer
 from app.tools import ProjectActionTools, ProjectTools
 
@@ -12,6 +13,7 @@ class VerificationResult:
     success: bool
     summary: str
     checks: tuple[str, ...] = ()
+    recovery: RecoveryDecision | None = None
 
 
 class VerificationEngine:
@@ -111,28 +113,79 @@ class VerificationEngine:
             "python -m pytest -q"
         )
 
-        if not result.success:
-            details = result.error or result.output
-            report = TestFailureAnalyzer().analyze(details)
+        if result.success:
+            return VerificationResult(
+                True,
+                "Test verification passed.",
+                (
+                    "pytest command executed",
+                    "pytest returned success",
+                ),
+                None,
+            )
+
+        details = result.error or result.output
+        report = TestFailureAnalyzer().analyze(details)
+        recovery = ErrorRecoveryEngine().decide(
+            report,
+            details,
+        )
+
+        if recovery.action == "retry_tests":
+            retry_result = self.action_tools.execute_command(
+                "python -m pytest -q"
+            )
+
+            if retry_result.success:
+                return VerificationResult(
+                    True,
+                    "Test verification recovered after one retry.",
+                    (
+                        "pytest command executed",
+                        report.summary,
+                        "Recovery: retry_tests",
+                        "pytest retry returned success",
+                    ),
+                    recovery,
+                )
+
+            retry_details = (
+                retry_result.error
+                or retry_result.output
+            )
+            retry_report = TestFailureAnalyzer().analyze(
+                retry_details
+            )
+            retry_recovery = ErrorRecoveryEngine().decide(
+                retry_report,
+                retry_details,
+            )
 
             return VerificationResult(
                 False,
-                f"Test verification failed: {details}",
+                (
+                    "Test verification failed after one retry: "
+                    f"{retry_details}"
+                ),
                 (
                     "pytest command executed",
-                    report.summary,
+                    retry_report.summary,
+                    f"Recovery: {retry_recovery.action}",
+                    "pytest retry returned failure",
                 ),
+                retry_recovery,
             )
 
         return VerificationResult(
-            True,
-            "Test verification passed.",
+            False,
+            f"Test verification failed: {details}",
             (
                 "pytest command executed",
-                "pytest returned success",
+                report.summary,
+                f"Recovery: {recovery.action}",
             ),
+            recovery,
         )
-
     def verify_project(self) -> VerificationResult:
         checks: list[str] = []
 
