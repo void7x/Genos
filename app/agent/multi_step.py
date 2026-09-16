@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.agent.error_recovery import ErrorRecoveryEngine
+from app.agent.test_failure_analyzer import TestFailureAnalyzer
 from app.agent.workflow import AgentWorkflow
 from app.tasks import TaskManager
 from app.agent.workflow_state import WorkflowStateRepository
@@ -44,6 +46,8 @@ class MultiStepWorkflow:
         self.workflow = workflow
         self.tasks = tasks
         self.state = state
+        self.failure_analyzer = TestFailureAnalyzer()
+        self.recovery = ErrorRecoveryEngine()
         self.pending = self.state.load(
             workflow.workspace_id
         )
@@ -276,6 +280,59 @@ class MultiStepWorkflow:
 
                 result = step_workflow.approve()
 
+                if step.action == "execute" and "ACT: FAILED" in result:
+                    output = result.split(
+                        "ACT: FAILED",
+                        1,
+                    )[-1]
+
+                    report = self.failure_analyzer.analyze(
+                        output,
+                    )
+                    decision = self.recovery.decide(
+                        report,
+                        output,
+                    )
+
+                    if decision.action == "none":
+                        decision = type(decision)(
+                            action="diagnose_failure",
+                            reason=(
+                                "The execute step failed without a recognized "
+                                "transient condition; diagnosis is required."
+                            ),
+                            safe=False,
+                        )
+
+                    lines.append(
+                        f"RECOVERY: {decision.action}"
+                    )
+                    lines.append(
+                        f"RECOVERY REASON: {decision.reason}"
+                    )
+
+                    if decision.action == "retry_tests":
+                        retry = step_workflow.plan_execute(
+                            step.target,
+                        )
+
+                        if (
+                            step_workflow.pending is not None
+                            and self.workflow.permissions.is_allowed(
+                                step_workflow.pending.permission
+                            )
+                        ):
+                            retry_result = step_workflow.approve()
+                            lines.append(
+                                "RECOVERY RETRY RESULT:"
+                            )
+                            lines.append(retry_result)
+
+                            if "ACT: SUCCESS" in retry_result:
+                                result = retry_result
+                            else:
+                                result = retry_result
+
             else:
                 result = planning
 
@@ -338,3 +395,4 @@ class MultiStepWorkflow:
         )
 
         return "\n".join(lines)
+

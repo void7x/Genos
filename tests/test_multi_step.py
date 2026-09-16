@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from app.agent.multi_step import (
     MultiStep,
@@ -237,5 +237,49 @@ def test_multistep_blocks_unsatisfied_dependency(tmp_path):
     assert saved is not None
     assert saved.status == "failed"
 
+def test_multistep_records_deterministic_failure_recovery(tmp_path):
+    multi, tasks = build_components(tmp_path)
 
+    task = tasks.add(
+        "workspace-a",
+        "Recovery workflow",
+        "Improve reliability",
+    )
+
+    multi.pending = MultiStepPlan(
+        task_id=task.id,
+        title="Recovery workflow",
+        steps=(
+            MultiStep(
+                action="execute",
+                target="python -m pytest -q missing_suite.py",
+                reason="Run tests",
+            ),
+        ),
+    )
+
+    result = multi.approve("workspace-a")
+
+    assert "RECOVERY: diagnose_failure" in result
+    assert "WORKFLOW: FAILED" in result
+
+
+def test_error_recovery_retries_transient_failure():
+    from app.agent.error_recovery import ErrorRecoveryEngine
+    from app.agent.test_failure_analyzer import TestFailureReport
+
+    engine = ErrorRecoveryEngine()
+
+    report = TestFailureReport(
+        failed_tests=(),
+        summary="Pytest reported a failure.",
+    )
+
+    decision = engine.decide(
+        report,
+        "Connection reset by peer",
+    )
+
+    assert decision.action == "retry_tests"
+    assert decision.safe is True
 
