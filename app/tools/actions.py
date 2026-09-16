@@ -49,6 +49,13 @@ class ProjectActionTools:
         "merge",
     }
 
+    _BLOCKED_GIT_OPTIONS = {
+        "-c",
+        "-c",
+        "--git-dir",
+        "--work-tree",
+    }
+
     _SHELL_OPERATORS = ("&&", "||", "|", ";", ">", "<", "`", "$(")
 
     def __init__(
@@ -172,6 +179,27 @@ class ProjectActionTools:
 
             subcommand = args[1].casefold()
 
+            git_options = {
+                item.casefold()
+                for item in args[2:]
+                if item.startswith("-")
+            }
+
+            if any(
+                option in git_options
+                or any(
+                    option in item
+                    for option in self._BLOCKED_GIT_OPTIONS
+                )
+                for item in args[2:]
+                for option in self._BLOCKED_GIT_OPTIONS
+            ):
+                return ToolResult(
+                    False,
+                    "",
+                    "Git path override options are not allowed.",
+                )
+
             if subcommand in self._BLOCKED_GIT_COMMANDS:
                 return ToolResult(
                     False,
@@ -206,6 +234,76 @@ class ProjectActionTools:
                     "",
                     "Python execution is limited to pytest or version checks.",
                 )
+
+            if is_pytest:
+                allowed_pytest_options = {
+                    "-q",
+                    "-v",
+                    "-vv",
+                    "-x",
+                    "--maxfail",
+                    "--tb",
+                    "--disable-warnings",
+                    "--no-header",
+                    "--no-summary",
+                    "-k",
+                    "-m",
+                }
+
+                i = 3
+                while i < len(args):
+                    item = args[i]
+
+                    if item.startswith("-"):
+                        option = item.split("=", 1)[0].casefold()
+
+                        if option not in {
+                            value.casefold()
+                            for value in allowed_pytest_options
+                        }:
+                            return ToolResult(
+                                False,
+                                "",
+                                f"Pytest option not allowed: {item}",
+                            )
+
+                        if option in {"--maxfail", "--tb", "-k", "-m"}:
+                            if "=" not in item:
+                                if i + 1 >= len(args):
+                                    return ToolResult(
+                                        False,
+                                        "",
+                                        f"Missing value for pytest option: {item}",
+                                    )
+                                i += 1
+
+                        i += 1
+                        continue
+
+                    candidate_text = item.split("::", 1)[0].strip('"')
+                    if not candidate_text:
+                        i += 1
+                        continue
+
+                    candidate = Path(candidate_text)
+
+                    if candidate.is_absolute():
+                        resolved_candidate = candidate.resolve()
+                    else:
+                        resolved_candidate = (
+                            self.root / candidate
+                        ).resolve()
+
+                    try:
+                        resolved_candidate.relative_to(self.root)
+                    except ValueError:
+                        return ToolResult(
+                            False,
+                            "",
+                            "Pytest target escapes the active workspace.",
+                        )
+
+                    i += 1
 
         try:
             result = subprocess.run(
