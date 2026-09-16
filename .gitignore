@@ -6,3 +6,9 @@ venv/
 .env
 data/*
 !data/.gitkeep
+
+# Test-generated workspace artifacts
+test_output.txt
+verification_target.txt
+notes/project_status.md
+notes/workflow_status.md

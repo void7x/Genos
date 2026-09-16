@@ -8,6 +8,7 @@ from app.agent import AgentOrchestrator, AgentWorkflow
 from app.agent.action_history import ActionHistoryManager, ActionHistoryRepository
 from app.agent.task_planner import TaskPlanner
 from app.agent.coding_executor import CodingTaskExecutor
+from app.agent.multi_step import MultiStepWorkflow
 from app.conversation.repository import ConversationRepository
 from app.goals.lifecycle import GoalLifecycleIntent
 from app.goals.models import Goal
@@ -85,6 +86,11 @@ class GenosRuntime:
             self.history,
             self.tasks,
         )
+        self.multi_step = MultiStepWorkflow(
+            self.root,
+            self.workflow,
+            self.tasks,
+        )
 
         self.conversation = ConversationRepository(
             data / "conversation" / f"{self.workspace.id}.json"
@@ -112,6 +118,11 @@ class GenosRuntime:
             self.memory,
             self.workspace.id,
             self.history,
+            self.tasks,
+        )
+        self.multi_step = MultiStepWorkflow(
+            self.root,
+            self.workflow,
             self.tasks,
         )
         self.conversation = ConversationRepository(
@@ -314,6 +325,114 @@ class GenosRuntime:
                 self.conversation.append_turn("user", text)
                 self.conversation.append_turn("assistant", response)
                 return response
+        natural_multi_step_prefixes = (
+            "create a task to add logging to ",
+            "create task to add logging to ",
+            "plan a workflow to add logging to ",
+            "plan workflow to add logging to ",
+
+        )
+
+        for prefix in natural_multi_step_prefixes:
+            if normalized.startswith(prefix):
+                target = text[len(prefix):].strip().strip('"')
+
+                active_goals = [
+                    goal
+                    for goal in self.goals.list(
+                        self.workspace.id
+                    )
+                    if goal.status == "active"
+                ]
+
+                selected_goal = (
+                    active_goals[-1]
+                    if active_goals
+                    else None
+                )
+
+                if not target:
+                    response = (
+                        "Please specify the Python file to modify."
+                    )
+
+                if selected_goal is None:
+                    response = (
+                        "No active goal exists. "
+                        "Create a goal first."
+                    )
+
+                if target and selected_goal is not None:
+                    task = self.tasks.add(
+                        self.workspace.id,
+                        f"Add logging to {target}",
+                        selected_goal.title,
+                    )
+
+                    prepared = self.coding_executor.prepare(
+                        "add_logging",
+                        target,
+                        "",
+                    )
+
+                    if prepared is None:
+                        response = (
+                            f"Could not prepare a logging change "
+                            f"for {target}."
+                        )
+
+                    if prepared is not None:
+                        prepared_target, new_content = prepared
+
+                        self.multi_step.plan_add_logging(
+                            task.id,
+                            prepared_target,
+                            new_content,
+                        )
+
+                        response = "\n".join(
+                            [
+                                "Multi-step workflow planned.",
+                                f"Task: {task.title}",
+                                f"Goal: {selected_goal.title}",
+                                "",
+                                "Plan:",
+                                (
+                                    "1. Apply and verify logging "
+                                    f"change to {prepared_target}"
+                                ),
+                                "2. Run the full pytest suite",
+                                "3. Complete the task",
+                                "",
+                                "Type 'grant' if permission is required.",
+                                "Then type 'approve workflow' to execute.",
+                            ]
+                        )
+
+                self.conversation.append_turn(
+                    "user",
+                    text,
+                )
+                self.conversation.append_turn(
+                    "assistant",
+                    response,
+                )
+                return response
+        if normalized == "approve workflow":
+            response = self.multi_step.approve(
+                self.workspace.id
+            )
+
+            self.conversation.append_turn(
+                "user",
+                text,
+            )
+            self.conversation.append_turn(
+                "assistant",
+                response,
+            )
+
+            return response
         if normalized == "grant":
             pending = self.workflow.pending
 
@@ -981,7 +1100,7 @@ class GenosRuntime:
             response = self._git_status()
 
         elif intent.name == "git_log":
-            result = self.tools.git_log(10)
+            result = self.tools.git_log(20)
             response = (
                 result.output
                 if result.success
@@ -1323,21 +1442,3 @@ class GenosRuntime:
 
 def main() -> None:
     GenosRuntime(Path.cwd()).run()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

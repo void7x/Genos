@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import subprocess
 from dataclasses import dataclass
@@ -97,7 +97,7 @@ class ProjectTools:
     def git_status(self) -> ToolResult:
         return self._git("status", "--short")
 
-    def git_log(self, limit: int = 10) -> ToolResult:
+    def git_log(self, limit: int = 20) -> ToolResult:
         if limit <= 0:
             return ToolResult(False, "", "Limit must be positive.")
 
@@ -148,4 +148,3 @@ class ProjectTools:
             ) from exc
 
         return resolved
-
