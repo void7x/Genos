@@ -68,6 +68,7 @@ class ProjectActionTools:
             raise ValueError(f"Workspace is not a directory: {self.root}")
 
         self.permissions = permissions
+        self.permissions.bind_workspace(str(self.root))
 
     def write_file(
         self,

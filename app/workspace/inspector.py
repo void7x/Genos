@@ -1,6 +1,7 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,15 @@ class ProjectInfo:
 
 
 class ProjectInspector:
+    _IGNORED_DIRS = {
+        ".git",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".pytest_cache",
+        "node_modules",
+    }
+
     def inspect(self, path: str | Path) -> ProjectInfo:
         root = Path(path).expanduser().resolve(strict=True)
 
@@ -42,23 +52,16 @@ class ProjectInspector:
             if item.is_dir()
         }
 
-        code_files = {
-            item.name.casefold()
-            for item in root.rglob("*")
-            if item.is_file()
-            and not any(
-                part.casefold()
-                in {
-                    ".git",
-                    ".venv",
-                    "venv",
-                    "__pycache__",
-                    ".pytest_cache",
-                    "node_modules",
-                }
-                for part in item.relative_to(root).parts
-            )
-        }
+        code_files = set()
+        for current_root, directories, files in os.walk(root):
+            directories[:] = [
+                directory
+                for directory in directories
+                if directory.casefold() not in self._IGNORED_DIRS
+            ]
+
+            for filename in files:
+                code_files.add(filename.casefold())
 
         languages = self._languages(code_files)
         project_type = self._project_type(
