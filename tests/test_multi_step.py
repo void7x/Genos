@@ -6,6 +6,7 @@ from app.agent.multi_step import (
     MultiStepWorkflow,
 )
 from app.agent.workflow import AgentWorkflow
+from app.agent.workflow_state import WorkflowStateRepository
 from app.memory import MemoryManager, MemoryRepository
 from app.permissions import PermissionLevel, PermissionManager
 from app.tasks import TaskManager, TaskRepository
@@ -42,10 +43,15 @@ def build_components(tmp_path: Path):
         "workspace-a",
     )
 
+    state = WorkflowStateRepository(
+        tmp_path / "workflows"
+    )
+
     multi = MultiStepWorkflow(
         tmp_path,
         workflow,
         tasks,
+        state,
     )
 
     return multi, tasks

@@ -9,6 +9,7 @@ from app.agent.action_history import ActionHistoryManager, ActionHistoryReposito
 from app.agent.task_planner import TaskPlanner
 from app.agent.coding_executor import CodingTaskExecutor
 from app.agent.multi_step import MultiStepWorkflow
+from app.agent.workflow_state import WorkflowStateRepository
 from app.conversation.repository import ConversationRepository
 from app.goals.lifecycle import GoalLifecycleIntent
 from app.goals.models import Goal
@@ -86,10 +87,14 @@ class GenosRuntime:
             self.history,
             self.tasks,
         )
+        self.workflow_state = WorkflowStateRepository(
+            data / "workflows"
+        )
         self.multi_step = MultiStepWorkflow(
             self.root,
             self.workflow,
             self.tasks,
+            self.workflow_state,
         )
 
         self.conversation = ConversationRepository(
@@ -120,10 +125,14 @@ class GenosRuntime:
             self.history,
             self.tasks,
         )
+        self.workflow_state = WorkflowStateRepository(
+            self.data_root / "workflows"
+        )
         self.multi_step = MultiStepWorkflow(
             self.root,
             self.workflow,
             self.tasks,
+            self.workflow_state,
         )
         self.conversation = ConversationRepository(
             self.data_root / "conversation" / f"{workspace.id}.json"
@@ -418,6 +427,22 @@ class GenosRuntime:
                     response,
                 )
                 return response
+        if normalized == "resume workflow":
+            response = self.multi_step.resume(
+                self.workspace.id
+            )
+
+            self.conversation.append_turn(
+                "user",
+                text,
+            )
+            self.conversation.append_turn(
+                "assistant",
+                response,
+            )
+
+            return response
+
         if normalized == "approve workflow":
             response = self.multi_step.approve(
                 self.workspace.id

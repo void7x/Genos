@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.agent.workflow import AgentWorkflow
 from app.tasks import TaskManager
+from app.agent.workflow_state import WorkflowStateRepository
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,8 @@ class MultiStepPlan:
     task_id: str
     title: str
     steps: tuple[MultiStep, ...]
+    current_step: int = 1
+    status: str = "pending"
 
 
 class MultiStepWorkflow:
@@ -30,6 +33,7 @@ class MultiStepWorkflow:
         root: str | Path,
         workflow: AgentWorkflow,
         tasks: TaskManager,
+        state: WorkflowStateRepository,
     ):
         self.root = (
             Path(root)
@@ -38,7 +42,10 @@ class MultiStepWorkflow:
         )
         self.workflow = workflow
         self.tasks = tasks
-        self.pending: MultiStepPlan | None = None
+        self.state = state
+        self.pending = self.state.load(
+            workflow.workspace_id
+        )
 
     def plan_add_logging(
         self,
@@ -65,7 +72,26 @@ class MultiStepWorkflow:
         )
 
         self.pending = plan
+        self.state.save(
+            self.workflow.workspace_id,
+            plan,
+        )
         return plan
+
+    def resume(
+        self,
+        workspace_id: str,
+    ) -> str:
+        if self.pending is None:
+            return "There is no interrupted multi-step workflow."
+
+        if self.pending.status == "completed":
+            return "The workflow is already completed."
+
+        if self.pending.status == "failed":
+            return "The workflow previously failed and cannot be resumed automatically."
+
+        return self.approve(workspace_id)
 
     def approve(
         self,
@@ -83,7 +109,22 @@ class MultiStepWorkflow:
         )
 
         if started is None:
+            self.pending = plan
             return f"Task not found: {plan.task_id}"
+
+        running_plan = MultiStepPlan(
+            task_id=plan.task_id,
+            title=plan.title,
+            steps=plan.steps,
+            current_step=max(1, plan.current_step),
+            status="running",
+        )
+        self.pending = running_plan
+        self.state.save(
+            workspace_id,
+            running_plan,
+        )
+        plan = running_plan
 
         lines = [
             "MULTI-STEP WORKFLOW",
@@ -113,10 +154,29 @@ class MultiStepWorkflow:
             None,
         )
 
+        start_index = max(1, plan.current_step)
+
         for index, step in enumerate(
             plan.steps,
             1,
         ):
+            if index < start_index:
+                continue
+
+            running_plan = MultiStepPlan(
+                task_id=plan.task_id,
+                title=plan.title,
+                steps=plan.steps,
+                current_step=index,
+                status="running",
+            )
+            self.pending = running_plan
+            self.state.save(
+                workspace_id,
+                running_plan,
+            )
+            plan = running_plan
+
             lines.append(
                 f"STEP {index}: {step.action.upper()}"
             )
@@ -153,9 +213,9 @@ class MultiStepWorkflow:
                 if not self.workflow.permissions.is_allowed(
                     permission.permission
                 ):
-                    self.tasks.fail(
+                    self.state.save(
                         workspace_id,
-                        plan.task_id,
+                        plan,
                     )
 
                     return "\n".join(
@@ -196,6 +256,19 @@ class MultiStepWorkflow:
                     plan.task_id,
                 )
 
+                failed_plan = MultiStepPlan(
+                    task_id=plan.task_id,
+                    title=plan.title,
+                    steps=plan.steps,
+                    current_step=index,
+                    status="failed",
+                )
+                self.pending = failed_plan
+                self.state.save(
+                    workspace_id,
+                    failed_plan,
+                )
+
                 lines.extend(
                     [
                         "WORKFLOW: FAILED",
@@ -210,6 +283,9 @@ class MultiStepWorkflow:
             workspace_id,
             plan.task_id,
         )
+
+        self.pending = None
+        self.state.clear(workspace_id)
 
         lines.extend(
             [
