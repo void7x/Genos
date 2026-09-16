@@ -51,7 +51,6 @@ class ProjectActionTools:
 
     _BLOCKED_GIT_OPTIONS = {
         "-c",
-        "-c",
         "--git-dir",
         "--work-tree",
     }
@@ -162,15 +161,22 @@ class ProjectActionTools:
         if not args:
             return ToolResult(False, "", "Command cannot be empty.")
 
-        executable = Path(args[0].strip('"')).name.casefold()
+        raw_executable = args[0].strip('"')
+        executable_name = Path(raw_executable).name.casefold()
+        executable = executable_name
         if executable.endswith(".exe"):
             executable = executable[:-4]
 
-        if executable not in self._ALLOWED_EXECUTABLES:
+        if (
+            executable not in self._ALLOWED_EXECUTABLES
+            or Path(raw_executable).name.casefold() != raw_executable.casefold()
+            or "/" in raw_executable
+            or "\\" in raw_executable
+        ):
             return ToolResult(
                 False,
                 "",
-                f"Executable not allowed: {executable}",
+                f"Executable path not allowed: {raw_executable}",
             )
 
         if executable == "git":
@@ -363,4 +369,3 @@ class ProjectActionTools:
             )
 
         return resolved
-
