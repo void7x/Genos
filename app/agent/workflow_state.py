@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 import json
@@ -73,7 +73,15 @@ class WorkflowStateRepository:
                 return None
 
             steps = tuple(
-                MultiStep(**step)
+                MultiStep(
+                    action=step.get("action", ""),
+                    target=step.get("target", ""),
+                    details=step.get("details", ""),
+                    reason=step.get("reason", ""),
+                    depends_on=tuple(
+                        step.get("depends_on", [])
+                    ),
+                )
                 for step in raw_steps
                 if isinstance(step, dict)
             )
@@ -101,3 +109,6 @@ class WorkflowStateRepository:
             path.unlink()
         except FileNotFoundError:
             pass
+
+
+

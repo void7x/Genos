@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from app.agent.multi_step import (
     MultiStep,
@@ -148,3 +148,94 @@ def test_multistep_stops_when_execution_fails(
     assert "WORKFLOW: FAILED" in result
     assert saved is not None
     assert saved.status == "failed"
+
+def test_multistep_dependency_allows_dependent_step(tmp_path):
+    multi, tasks = build_components(tmp_path)
+
+    target = tmp_path / "sample.py"
+    target.write_text(
+        "def hello():\n"
+        "    return 'hello'\n",
+        encoding="utf-8",
+    )
+
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+
+    (tests_dir / "test_sample.py").write_text(
+        "from sample import hello\n\n"
+        "def test_hello():\n"
+        "    assert hello() == 'updated'\n",
+        encoding="utf-8",
+    )
+
+    task = tasks.add(
+        "workspace-a",
+        "Dependency workflow",
+        "Improve reliability",
+    )
+
+    multi.pending = MultiStepPlan(
+        task_id=task.id,
+        title="Dependency workflow",
+        steps=(
+            MultiStep(
+                action="edit",
+                target="sample.py",
+                details="def hello():\n"
+                "    return 'updated'\n",
+                reason="Update implementation",
+            ),
+            MultiStep(
+                action="execute",
+                target="python -m pytest -q",
+                reason="Run tests after edit",
+                depends_on=(1,),
+            ),
+        ),
+    )
+
+    result = multi.approve("workspace-a")
+
+    saved = tasks.get(
+        "workspace-a",
+        task.id,
+    )
+
+    assert "WORKFLOW: COMPLETED" in result
+    assert saved is not None
+    assert saved.status == "completed"
+
+def test_multistep_blocks_unsatisfied_dependency(tmp_path):
+    multi, tasks = build_components(tmp_path)
+
+    task = tasks.add(
+        "workspace-a",
+        "Blocked dependency workflow",
+        "Improve reliability",
+    )
+
+    multi.pending = MultiStepPlan(
+        task_id=task.id,
+        title="Blocked dependency workflow",
+        steps=(
+            MultiStep(
+                action="execute",
+                target="python -m pytest -q",
+                reason="Blocked step",
+                depends_on=(2,),
+            ),
+        ),
+    )
+
+    result = multi.approve("workspace-a")
+
+    saved = tasks.get("workspace-a", task.id)
+
+    assert "blocked by dependencies" in result
+    assert "WORKFLOW: FAILED" in result
+    assert saved is not None
+    assert saved.status == "failed"
+
+
+

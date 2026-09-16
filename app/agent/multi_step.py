@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +14,7 @@ class MultiStep:
     target: str
     details: str = ""
     reason: str = ""
+    depends_on: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,7 @@ class MultiStepWorkflow:
                     action="execute",
                     target="python -m pytest -q",
                     reason="Run the full test suite",
+                    depends_on=(1,),
                 ),
             ),
         )
@@ -155,6 +157,7 @@ class MultiStepWorkflow:
         )
 
         start_index = max(1, plan.current_step)
+        completed_steps = set(range(1, start_index))
 
         for index, step in enumerate(
             plan.steps,
@@ -162,6 +165,43 @@ class MultiStepWorkflow:
         ):
             if index < start_index:
                 continue
+
+            missing_dependencies = tuple(
+                dependency
+                for dependency in step.depends_on
+                if dependency not in completed_steps
+            )
+
+            if missing_dependencies:
+                self.tasks.fail(
+                    workspace_id,
+                    plan.task_id,
+                )
+
+                failed_plan = MultiStepPlan(
+                    task_id=plan.task_id,
+                    title=plan.title,
+                    steps=plan.steps,
+                    current_step=index,
+                    status="failed",
+                )
+                self.pending = failed_plan
+                self.state.save(
+                    workspace_id,
+                    failed_plan,
+                )
+
+                return "\n".join(
+                    [
+                        *lines,
+                        "WORKFLOW: FAILED",
+                        (
+                            f"STEP {index} blocked by dependencies: "
+                            f"{missing_dependencies}"
+                        ),
+                        "TASK: failed",
+                    ]
+                )
 
             running_plan = MultiStepPlan(
                 task_id=plan.task_id,
@@ -278,6 +318,8 @@ class MultiStepWorkflow:
                 )
 
                 return "\n".join(lines)
+
+            completed_steps.add(index)
 
         self.tasks.complete(
             workspace_id,
