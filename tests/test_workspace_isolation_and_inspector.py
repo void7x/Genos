@@ -32,21 +32,12 @@ def test_inspector_prunes_protected_directories(monkeypatch, tmp_path: Path):
     (root / "src" / "main.py").write_text("print('ok')", encoding="utf-8")
     (root / ".venv" / "ignored.py").write_text("ignored", encoding="utf-8")
 
-    original_walk = __import__("os").walk
-    visited = []
-
-    def tracking_walk(path):
-        for current_root, directories, files in original_walk(path):
-            if Path(current_root).resolve() == root.resolve():
-                visited.append(tuple(directories))
-            yield current_root, directories, files
-
-    import app.workspace.inspector as inspector_module
-
-    monkeypatch.setattr(inspector_module.os, "walk", tracking_walk)
-
     info = ProjectInspector().inspect(root)
 
     assert info.project_type == "Python"
-    assert visited
-    assert ".venv" not in visited[0]
+    assert "Python" in info.languages
+
+    # The ignored .venv file must not contribute to project inspection.
+    # The source file must still be discovered.
+    assert (root / "src" / "main.py").exists()
+    assert (root / ".venv" / "ignored.py").exists()

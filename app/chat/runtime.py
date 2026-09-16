@@ -52,9 +52,11 @@ class GenosRuntime:
         )
         self.workspace = self.workspace_manager.attach(self.root)
 
+        self.permissions = PermissionManager()
+        self.permissions.bind_workspace(str(self.root))
+
         self.inspector = ProjectInspector()
         self.tools = ProjectTools(self.root)
-        self.permissions = PermissionManager()
         self.action_tools = ProjectActionTools(self.root, self.permissions)
         self.intent_router = IntentRouter()
         self.task_planner = TaskPlanner()
@@ -105,6 +107,7 @@ class GenosRuntime:
     def _activate_workspace(self, workspace) -> None:
         self.workspace = workspace
         self.root = Path(workspace.path).resolve(strict=True)
+        self.permissions.bind_workspace(str(self.root))
         self.tools = ProjectTools(self.root)
         self.action_tools = ProjectActionTools(
             self.root,
