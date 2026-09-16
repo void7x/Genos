@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 import re
@@ -16,7 +16,11 @@ class TaskPlan:
 class TaskPlanner:
     """Deterministic natural-language task planner for Genos."""
 
-    def plan(self, message: str) -> TaskPlan | None:
+    def plan(
+        self,
+        message: str,
+        project=None,
+    ) -> TaskPlan | None:
         text = " ".join(str(message).strip().split())
         lower = text.casefold()
 
@@ -71,17 +75,34 @@ class TaskPlanner:
         )
 
         if match:
+            steps = [
+                "Inspect the target code",
+                "Create focused tests",
+            ]
+
+            test_commands = tuple(
+                getattr(project, "test_commands", ()) or ()
+            ) if project is not None else ()
+
+            if test_commands:
+                steps.append(
+                    f"Run project test command: {test_commands[0]}"
+                )
+            else:
+                steps.append("Run the relevant test suite")
+
+            steps.extend(
+                [
+                    "Verify the result",
+                    "Remember the completed action",
+                ]
+            )
+
             return TaskPlan(
                 action="add_tests",
                 target=match.group("target").strip(),
                 permission="SAFE_WRITE",
-                steps=(
-                    "Inspect the target code",
-                    "Create focused tests",
-                    "Run the relevant test suite",
-                    "Verify the result",
-                    "Remember the completed action",
-                ),
+                steps=tuple(steps),
             )
 
         match = re.match(
@@ -92,17 +113,34 @@ class TaskPlanner:
         )
 
         if match:
+            steps = [
+                "Inspect the target module",
+                "Add appropriate logging",
+            ]
+
+            test_commands = tuple(
+                getattr(project, "test_commands", ()) or ()
+            ) if project is not None else ()
+
+            if test_commands:
+                steps.append(
+                    f"Run project test command: {test_commands[0]}"
+                )
+            else:
+                steps.append("Run focused tests")
+
+            steps.extend(
+                [
+                    "Verify the changes",
+                    "Remember the completed action",
+                ]
+            )
+
             return TaskPlan(
                 action="add_logging",
                 target=match.group("target").strip(),
                 permission="SAFE_WRITE",
-                steps=(
-                    "Inspect the target module",
-                    "Add appropriate logging",
-                    "Run focused tests",
-                    "Verify the changes",
-                    "Remember the completed action",
-                ),
+                steps=tuple(steps),
             )
 
         match = re.match(
@@ -116,18 +154,35 @@ class TaskPlanner:
             marker in lower
             for marker in ("bug", "error", "issue", "failure", "problem")
         ):
+            steps = [
+                "Inspect the relevant code",
+                "Identify the cause",
+                "Apply a focused fix",
+            ]
+
+            test_commands = tuple(
+                getattr(project, "test_commands", ()) or ()
+            ) if project is not None else ()
+
+            if test_commands:
+                steps.append(
+                    f"Run project test command: {test_commands[0]}"
+                )
+            else:
+                steps.append("Run the relevant tests")
+
+            steps.extend(
+                [
+                    "Verify the fix",
+                    "Remember the completed action",
+                ]
+            )
+
             return TaskPlan(
                 action="fix_bug",
                 target=match.group("target").strip(),
                 permission="SAFE_WRITE",
-                steps=(
-                    "Inspect the relevant code",
-                    "Identify the cause",
-                    "Apply a focused fix",
-                    "Run the relevant tests",
-                    "Verify the fix",
-                    "Remember the completed action",
-                ),
+                steps=tuple(steps),
             )
 
         match = re.match(
@@ -138,18 +193,35 @@ class TaskPlanner:
         )
 
         if match:
+            steps = [
+                "Inspect the target code",
+                "Plan the refactor",
+                "Apply the changes",
+            ]
+
+            test_commands = tuple(
+                getattr(project, "test_commands", ()) or ()
+            ) if project is not None else ()
+
+            if test_commands:
+                steps.append(
+                    f"Run project test command: {test_commands[0]}"
+                )
+            else:
+                steps.append("Run the relevant tests")
+
+            steps.extend(
+                [
+                    "Verify behavior",
+                    "Remember the completed action",
+                ]
+            )
+
             return TaskPlan(
                 action="refactor",
                 target=match.group("target").strip(),
                 permission="SAFE_WRITE",
-                steps=(
-                    "Inspect the target code",
-                    "Plan the refactor",
-                    "Apply the changes",
-                    "Run the relevant tests",
-                    "Verify behavior",
-                    "Remember the completed action",
-                ),
+                steps=tuple(steps),
             )
 
         return None

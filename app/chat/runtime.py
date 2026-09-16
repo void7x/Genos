@@ -868,7 +868,11 @@ class GenosRuntime:
 
         intent = self.intent_router.route(text)
 
-        task_plan = self.task_planner.plan(text)
+        project_info = self.inspector.inspect(self.root)
+        task_plan = self.task_planner.plan(
+            text,
+            project_info,
+        )
 
         if task_plan is not None:
             lines = [

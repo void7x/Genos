@@ -87,3 +87,17 @@ def test_runtime_uses_task_planner_for_explicit_file_content(tmp_path):
     assert "settings.txt" in response
     assert "SAFE_WRITE" in response
     assert runtime.workflow.pending is not None
+
+def test_planner_uses_project_test_command():
+    class Project:
+        test_commands = ("python -m pytest -q",)
+
+    plan = TaskPlanner().plan(
+        "add logging to authentication.py",
+        Project(),
+    )
+
+    assert plan is not None
+    assert "Run project test command: python -m pytest -q" in plan.steps
+
+
