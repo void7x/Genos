@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from enum import IntEnum
 
@@ -11,9 +11,22 @@ class PermissionLevel(IntEnum):
 
 
 class PermissionManager:
-    """Manage the permissions available to Genos."""
+    """Manage permissions for the currently active Genos workspace."""
 
     def __init__(self):
+        self._granted = {PermissionLevel.READ}
+        self._workspace_key: str | None = None
+
+    def bind_workspace(self, workspace_key: str) -> None:
+        """Switch permission scope and reset elevated permissions."""
+        key = str(workspace_key).strip()
+        if not key:
+            raise ValueError("Workspace key cannot be empty.")
+
+        if self._workspace_key == key:
+            return
+
+        self._workspace_key = key
         self._granted = {PermissionLevel.READ}
 
     def grant(self, permission: PermissionLevel) -> None:
