@@ -24,18 +24,16 @@ _NEGATIONS = {
     "leave it", "never mind", "nevermind", "no thanks", "nah bro",
 }
 
-
 _STOP_WORDS = {
     "a", "an", "and", "are", "can", "could", "do", "for", "from", "get",
-    "i", "in", "is", "it", "me", "my", "of", "on", "or", "please", "show",
-    "tell", "the", "this", "to", "what", "with", "you", "your", "we", "would",
+    "i", "in", "is", "it", "me", "my", "of", "on", "or", "please", "tell",
+    "the", "this", "to", "what", "with", "you", "your", "we", "would",
 }
-
 
 _INTENT_TERMS = {
     "capabilities": {"feature", "features", "capability", "capabilities", "can", "do"},
-    "project_info": {"project", "repo", "repository", "codebase", "workspace", "about", "structure", "understand", "inspect"},
-    "list_files": {"files", "file", "folders", "directory", "directories", "inside", "contents", "list", "show"},
+    "project_info": {"project", "repo", "repository", "codebase", "workspace", "about", "structure", "understand", "inspect", "inside", "contents"},
+    "list_files": {"files", "file", "folders", "folder", "directory", "directories", "inside", "contents", "list", "show"},
     "read_file": {"read", "open", "contents", "inside"},
     "find": {"find", "search", "look", "locate", "where", "grep", "match"},
     "git_status": {"git", "status", "changes", "changed", "clean", "uncommitted", "working", "tree"},
@@ -52,6 +50,10 @@ _INTENT_TERMS = {
 }
 
 
+def _normalize(text: str) -> str:
+    return " ".join(str(text).strip().casefold().split())
+
+
 def _tokens(text: str) -> set[str]:
     normalized = re.sub(r"[^a-z0-9']+", " ", text.casefold())
     return {
@@ -62,13 +64,33 @@ def _tokens(text: str) -> set[str]:
 
 
 def is_acknowledgement(message: str) -> bool:
-    text = " ".join(str(message).strip().casefold().split())
-    return text in _ACKNOWLEDGEMENTS
+    text = _normalize(message)
+    if text in _ACKNOWLEDGEMENTS:
+        return True
+
+    # Accept natural combinations such as "yeah go ahead" or
+    # "sure, that's fine" without maintaining a sentence dictionary.
+    tokens = _tokens(text)
+    acknowledgement_tokens = {
+        "ok", "okay", "sure", "yeah", "yep", "yup", "yes", "alright",
+        "fine", "proceed", "continue", "please", "haan", "han", "theek",
+        "thik", "kar",
+    }
+    action_words = {
+        "delete", "remove", "read", "open", "find", "search", "run",
+        "create", "add", "change", "modify", "edit", "switch", "cancel",
+    }
+    return bool(tokens & acknowledgement_tokens) and not bool(tokens & action_words)
 
 
 def is_negation(message: str) -> bool:
-    text = " ".join(str(message).strip().casefold().split())
-    return text in _NEGATIONS
+    text = _normalize(message)
+    if text in _NEGATIONS:
+        return True
+    tokens = _tokens(text)
+    return bool(tokens & {"nope", "nah", "cancel", "stop"}) and not bool(
+        tokens & {"delete", "remove", "read", "open", "find", "search", "run"}
+    )
 
 
 def _extract_argument(original: str, words: tuple[str, ...]) -> str:
@@ -84,7 +106,7 @@ def _extract_argument(original: str, words: tuple[str, ...]) -> str:
 
 
 def classify(message: str) -> SemanticIntent | None:
-    """Flexible intent fallback: scores meaning-bearing words instead of matching full sentences."""
+    """Flexible fallback that classifies by meaning-bearing terms and simple concepts."""
     original = " ".join(str(message).strip().split())
     text = original.casefold()
 
@@ -109,12 +131,15 @@ def classify(message: str) -> SemanticIntent | None:
 
         score = len(overlap) / max(3, min(len(terms), 6))
 
-        # Strong combinations for common ambiguous requests.
         if intent in {"git_status", "git_log", "git_diff"} and "git" in tokens:
             score += 0.25
-        if intent == "list_files" and ({"files", "file"} & tokens):
+        if intent == "list_files" and ({"files", "file", "folder", "folders"} & tokens):
             score += 0.25
-        if intent == "find" and ({"find", "search", "locate"} & tokens):
+        if intent == "list_files" and {"show", "inside"}.issubset(tokens):
+            score += 0.25
+        if intent == "project_info" and {"repo", "inside"}.issubset(tokens):
+            score += 0.30
+        if intent == "find" and ({"find", "search", "locate", "look"} & tokens):
             score += 0.35
         if intent == "read_file" and ({"read", "open"} & tokens):
             score += 0.30
@@ -128,11 +153,10 @@ def classify(message: str) -> SemanticIntent | None:
     if not scored:
         return None
 
-    scored.sort(reverse=True)
+    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
     best_score, best_intent = scored[0]
     second_score = scored[1][0] if len(scored) > 1 else 0.0
 
-    # Do not hijack genuinely ambiguous requests.
     if best_score < 0.45 or best_score - second_score < 0.08:
         return None
 
