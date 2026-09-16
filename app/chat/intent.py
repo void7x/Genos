@@ -3,6 +3,8 @@
 import re
 from dataclasses import dataclass
 
+from app.chat.semantic import classify
+
 
 @dataclass(frozen=True)
 class Intent:
@@ -11,7 +13,7 @@ class Intent:
 
 
 class IntentRouter:
-    """Deterministic natural-language intent router for Genos."""
+    """Hybrid natural-language intent router for Genos."""
 
     def route(self, message: str) -> Intent:
         original = " ".join(str(message).strip().split())
@@ -35,79 +37,28 @@ class IntentRouter:
         if text in {"hi", "hello", "hey", "hey genos"}:
             return Intent("hello")
 
-        if any(
-            phrase in text
-            for phrase in (
-                "what features",
-                "what can you do",
-                "what do you do",
-                "what are your features",
-                "show your features",
-                "what capabilities",
-                "your capabilities",
-                "what can genos do",
-            )
-        ):
+        if any(phrase in text for phrase in ("what features", "what can you do", "what do you do", "what are your features", "show your features", "what capabilities", "your capabilities", "what can genos do")):
             return Intent("capabilities")
 
-        if any(
-            phrase in text
-            for phrase in (
-                "what is this project",
-                "tell me about this project",
-                "describe this project",
-                "explain this project",
-                "inspect this project",
-                "inspect the project",
-                "understand this project",
-                "inspect project",
-            )
-        ) or text in {"project", "project info", "project details"}:
+        if any(phrase in text for phrase in ("what is this project", "tell me about this project", "describe this project", "explain this project", "inspect this project", "inspect the project", "understand this project", "inspect project")) or text in {"project", "project info", "project details"}:
             return Intent("project_info")
 
-        if any(
-            phrase in text
-            for phrase in (
-                "list files",
-                "show files",
-                "show me the files",
-                "show me the project files",
-                "what files are here",
-                "what files do we have",
-                "show project files",
-                "show me what files you have",
-            )
-        ) or text == "files":
+        if any(phrase in text for phrase in ("list files", "show files", "show me the files", "show me the project files", "what files are here", "what files do we have", "show project files", "show me what files you have")) or text == "files":
             return Intent("list_files")
 
         if text.startswith("list files in "):
-            return Intent(
-                "list_files",
-                original[len("list files in "):].strip(),
-            )
+            return Intent("list_files", original[len("list files in "):].strip())
 
         if text.startswith("show files in "):
-            return Intent(
-                "list_files",
-                original[len("show files in "):].strip(),
-            )
+            return Intent("list_files", original[len("show files in "):].strip())
 
         if text.startswith("read file "):
-            return Intent(
-                "read_file",
-                original[len("read file "):].strip(),
-            )
+            return Intent("read_file", original[len("read file "):].strip())
 
         if text.startswith("read "):
             argument = original[len("read "):].strip()
-
-            if argument.casefold() in {
-                "readme",
-                "the readme",
-                "readme file",
-            }:
+            if argument.casefold() in {"readme", "the readme", "readme file"}:
                 return Intent("read_file", "README.md")
-
             return Intent("read_file", argument)
 
         if text in {"readme", "show readme", "show the readme"}:
@@ -120,371 +71,114 @@ class IntentRouter:
             return Intent("find", original[len("find "):].strip())
 
         if text.startswith("search for "):
-            return Intent(
-                "find",
-                original[len("search for "):].strip(),
-            )
+            return Intent("find", original[len("search for "):].strip())
 
         if text.startswith("search "):
-            return Intent(
-                "find",
-                original[len("search "):].strip(),
-            )
+            return Intent("find", original[len("search "):].strip())
 
-        if any(
-            phrase in text
-            for phrase in (
-                "git status",
-                "git changes",
-                "uncommitted changes",
-                "working tree",
-                "repository status",
-                "are there changes",
-                "did anything change",
-                "is the repository clean",
-            )
-        ):
+        if any(phrase in text for phrase in ("git status", "git changes", "uncommitted changes", "working tree", "repository status", "are there changes", "did anything change", "is the repository clean")):
             return Intent("git_status")
 
-        if any(
-            phrase in text
-            for phrase in (
-                "git log",
-                "commit history",
-                "recent commits",
-                "show commits",
-                "what changed recently",
-                "show recent git history",
-                "show git history",
-                "recent git history",
-            )
-        ):
+        if any(phrase in text for phrase in ("git log", "commit history", "recent commits", "show commits", "what changed recently", "show recent git history", "show git history", "recent git history")):
             return Intent("git_log")
 
-        if any(
-            phrase in text
-            for phrase in (
-                "git diff",
-                "show git diff",
-                "show repository diff",
-                "what changed in the working tree",
-            )
-        ):
+        if any(phrase in text for phrase in ("git diff", "show git diff", "show repository diff", "what changed in the working tree")):
             return Intent("git_diff")
 
-        if (
-            text in {"goals", "show goals", "my goals"}
-            or "what are my goals" in text
-            or "what goals do i have" in text
-            or "show my goals" in text
-            or "project goals" in text
-        ):
+        if text in {"goals", "show goals", "my goals"} or "what are my goals" in text or "what goals do i have" in text or "show my goals" in text or "project goals" in text:
             return Intent("goals")
 
         if text.startswith("search memory "):
-            return Intent(
-                "memory",
-                original[len("search memory "):].strip(),
-            )
+            return Intent("memory", original[len("search memory "):].strip())
 
         if text.startswith("memory "):
-            return Intent(
-                "memory",
-                original[len("memory "):].strip(),
-            )
+            return Intent("memory", original[len("memory "):].strip())
 
         if text.startswith("remember "):
-            return Intent(
-                "remember",
-                original[len("remember "):].strip(),
-            )
+            return Intent("remember", original[len("remember "):].strip())
 
         if text.startswith("add goal "):
-            return Intent(
-                "goal",
-                original[len("add goal "):].strip(),
-            )
+            return Intent("goal", original[len("add goal "):].strip())
 
         if text.startswith("create goal "):
-            return Intent(
-                "goal",
-                original[len("create goal "):].strip(),
-            )
+            return Intent("goal", original[len("create goal "):].strip())
 
         if text.startswith("new goal "):
-            return Intent(
-                "goal",
-                original[len("new goal "):].strip(),
-            )
+            return Intent("goal", original[len("new goal "):].strip())
 
         if text.startswith("goal "):
-            return Intent(
-                "goal",
-                original[len("goal "):].strip(),
-            )
+            return Intent("goal", original[len("goal "):].strip())
 
-        if (
-            text in {
-                "permissions",
-                "permission",
-                "show permissions",
-            }
-            or "what permissions" in text
-            or "what am i allowed to do" in text
-            or "what can you modify" in text
-            or "what access do you have" in text
-            or "what can i modify" in text
-        ):
+        if text in {"permissions", "permission", "show permissions"} or "what permissions" in text or "what am i allowed to do" in text or "what can you modify" in text or "what access do you have" in text or "what can i modify" in text:
             return Intent("permissions")
 
-        # Permission: SAFE_WRITE
-        if any(
-            phrase in text
-            for phrase in (
-                "grant safe write",
-                "give safe write",
-                "give me safe write",
-                "allow safe write",
-                "enable safe write",
-                "let me modify files",
-                "let me edit files",
-                "give me permission to modify files",
-                "give me permission to edit files",
-                "allow me to modify files",
-                "allow me to edit files",
-                "enable file editing",
-                "enable file modification",
-                "you can modify files now",
-                "you can edit files now",
-            )
-        ):
+        if any(phrase in text for phrase in ("grant safe write", "give safe write", "give me safe write", "allow safe write", "enable safe write", "let me modify files", "let me edit files", "give me permission to modify files", "give me permission to edit files", "allow me to modify files", "allow me to edit files", "enable file editing", "enable file modification", "you can modify files now", "you can edit files now")):
             return Intent("grant_safe_write")
 
-        # Permission: EXECUTE
-        if any(
-            phrase in text
-            for phrase in (
-                "grant execute",
-                "give execute",
-                "give me execute",
-                "allow execute",
-                "enable execute",
-                "let me execute commands",
-                "let me run commands",
-                "give me permission to execute",
-                "give me permission to run commands",
-                "allow me to execute commands",
-                "allow me to run commands",
-                "enable command execution",
-            )
-        ):
+        if any(phrase in text for phrase in ("grant execute", "give execute", "give me execute", "allow execute", "enable execute", "let me execute commands", "let me run commands", "give me permission to execute", "give me permission to run commands", "allow me to execute commands", "allow me to run commands", "enable command execution")):
             return Intent("grant_execute")
 
-        # Permission: DESTRUCTIVE
-        if any(
-            phrase in text
-            for phrase in (
-                "grant destructive",
-                "give destructive",
-                "give me destructive",
-                "allow destructive",
-                "enable destructive",
-                "let me delete files",
-                "give me permission to delete files",
-                "allow me to delete files",
-                "enable deletion",
-            )
-        ):
+        if any(phrase in text for phrase in ("grant destructive", "give destructive", "give me destructive", "allow destructive", "enable destructive", "let me delete files", "give me permission to delete files", "allow me to delete files", "enable deletion")):
             return Intent("grant_destructive")
 
-        # Permission revocation
-        if any(
-            phrase in text
-            for phrase in (
-                "revoke safe write",
-                "remove safe write",
-                "disable safe write",
-                "take away file modification permission",
-            )
-        ):
+        if any(phrase in text for phrase in ("revoke safe write", "remove safe write", "disable safe write", "take away file modification permission")):
             return Intent("revoke_safe_write")
 
-        if any(
-            phrase in text
-            for phrase in (
-                "revoke execute",
-                "remove execute",
-                "disable execute",
-                "take away execute permission",
-            )
-        ):
+        if any(phrase in text for phrase in ("revoke execute", "remove execute", "disable execute", "take away execute permission")):
             return Intent("revoke_execute")
 
-        if any(
-            phrase in text
-            for phrase in (
-                "revoke destructive",
-                "remove destructive",
-                "disable destructive",
-                "take away delete permission",
-            )
-        ):
+        if any(phrase in text for phrase in ("revoke destructive", "remove destructive", "disable destructive", "take away delete permission")):
             return Intent("revoke_destructive")
 
-        goal_lifecycle_match = re.match(
-            r"^(complete|pause|resume|cancel)\s+goal\s+(.+)$",
-            original,
-            re.IGNORECASE,
-        )
-
+        goal_lifecycle_match = re.match(r"^(complete|pause|resume|cancel)\s+goal\s+(.+)$", original, re.IGNORECASE)
         if goal_lifecycle_match:
             action = goal_lifecycle_match.group(1)
             title = goal_lifecycle_match.group(2).strip()
+            return Intent("goal_lifecycle", f"{action} :: {title}")
 
-            return Intent(
-                "goal_lifecycle",
-                f"{action} :: {title}",
-            )
-
-        # Workspace discovery/switching
-        if any(
-            phrase in text
-            for phrase in (
-                "list workspaces",
-                "list my workspaces",
-                "show workspaces",
-                "show my workspaces",
-                "what projects do you know",
-                "what projects do you have",
-                "what projects are available",
-            )
-        ):
+        if any(phrase in text for phrase in ("list workspaces", "list my workspaces", "show workspaces", "show my workspaces", "what projects do you know", "what projects do you have", "what projects are available")):
             return Intent("workspace_list")
 
-        for prefix in (
-            "switch to ",
-            "go to ",
-            "open ",
-            "use ",
-            "move to ",
-            "work on ",
-            "open project ",
-            "switch project to ",
-        ):
+        for prefix in ("switch to ", "go to ", "open ", "use ", "move to ", "work on ", "open project ", "switch project to "):
             if text.startswith(prefix):
-                return Intent(
-                    "workspace_switch",
-                    original[len(prefix):].strip().strip('"'),
-                )
+                return Intent("workspace_switch", original[len(prefix):].strip().strip('"'))
 
-        if text in {
-            "what file did you just find",
-            "what file did you find",
-            "which file did you just find",
-            "which file did you find",
-            "what did you just find",
-        }:
+        if text in {"what file did you just find", "what file did you find", "which file did you just find", "which file did you find", "what did you just find"}:
             return Intent("last_file")
 
-        # Conversational follow-up
-        if text in {
-            "what did you find",
-            "what did you find?",
-            "what did you see",
-            "what did you see?",
-            "tell me more",
-            "tell me more about that",
-            "explain that",
-            "explain it",
-            "what about it",
-            "what about that",
-        }:
+        if text in {"what did you find", "what did you find?", "what did you see", "what did you see?", "tell me more", "tell me more about that", "explain that", "explain it", "what about it", "what about that"}:
             return Intent("context_followup")
 
-        # Natural contextual file references
-        if text in {
-            "read that file",
-            "read this file",
-            "read the one you found",
-            "read the one you just found",
-            "open that file",
-            "open this file",
-            "open the one you found",
-            "open the one you just found",
-            "show that file",
-            "show this file",
-        }:
+        if text in {"read that file", "read this file", "read the one you found", "read the one you just found", "open that file", "open this file", "open the one you found", "open the one you just found", "show that file", "show this file"}:
             return Intent("context_file")
 
-        # Natural delete
-        for prefix in (
-            "delete file ",
-            "remove file ",
-            "delete ",
-            "remove ",
-        ):
+        for prefix in ("delete file ", "remove file ", "delete ", "remove "):
             if text.startswith(prefix):
-                return Intent(
-                    "delete_file",
-                    original[len(prefix):].strip(),
-                )
+                return Intent("delete_file", original[len(prefix):].strip())
 
-        # Natural command execution
-        if text in {
-            "run tests",
-            "run the tests",
-            "execute tests",
-            "test the project",
-        }:
+        if text in {"run tests", "run the tests", "execute tests", "test the project"}:
             return Intent("run_tests")
 
-        # Natural verification
-        if text in {
-            "verify project",
-            "verify this project",
-            "check my project",
-            "verify the project",
-        }:
+        if text in {"verify project", "verify this project", "check my project", "verify the project"}:
             return Intent("verify_project")
 
-        if text in {
-            "verify git",
-            "verify git status",
-            "verify repository",
-        }:
+        if text in {"verify git", "verify git status", "verify repository"}:
             return Intent("verify_git")
 
-        if text in {
-            "verify tests",
-            "verify test suite",
-            "verify the tests",
-        }:
+        if text in {"verify tests", "verify test suite", "verify the tests"}:
             return Intent("verify_tests")
 
         if text.startswith("verify file "):
-            return Intent(
-                "verify_file",
-                original[len("verify file "):].strip(),
-            )
+            return Intent("verify_file", original[len("verify file "):].strip())
 
-        # Natural task: create status notes
-        if (
-            "create a notes file" in text
-            or "create notes file" in text
-            or "make a notes file" in text
-            or "make notes file" in text
-        ) and "project status" in text:
+        if ("create a notes file" in text or "create notes file" in text or "make a notes file" in text or "make notes file" in text) and "project status" in text:
             return Intent("natural_project_status")
 
-        if text in {
-            "show action history",
-            "show history",
-            "action history",
-            "what actions have you taken",
-            "what did genos do",
-            "what has genos done",
-        }:
+        if text in {"show action history", "show history", "action history", "what actions have you taken", "what did genos do", "what has genos done"}:
             return Intent("action_history")
 
-        return Intent("unknown")
+        semantic_intent = classify(original)
+        if semantic_intent is not None:
+            return Intent(semantic_intent.name, semantic_intent.argument)
 
+        return Intent("unknown")
