@@ -1,0 +1,36 @@
+export interface ProjectContext{id:string;name:string;path:string;language:string;branch:string;gitState:GitState;tests:TestSummary;workspace:string}
+export interface GitState{branch:string;clean:boolean;modifiedFiles:number;ahead:number;behind:number;lastCommit:string}
+export interface TestSummary{passed:number;failed:number;skipped:number;durationMs:number;lastRun:string}
+export type AgentStatus='idle'|'thinking'|'working'|'waiting'|'success'|'error'
+export const STATUS_LABEL:Record<AgentStatus,string>={idle:'Ready',thinking:'Thinking',working:'Working',waiting:'Needs approval',success:'Completed',error:'Verification failed'}
+export type MessageRole='user'|'genos'
+export type MessageBlock=|{kind:'text';text:string}|{kind:'code';language:string;filename?:string;code:string}|{kind:'details';summary:string;body:MessageBlock[]}|{kind:'fileList';files:FileReference[]}|{kind:'command';command:string;output?:string}
+export interface ChatMessage{id:string;role:MessageRole;blocks:MessageBlock[];at:string;note?:string}
+export type FileChangeState='original'|'modified'|'added'|'deleted'
+export interface FileReference{path:string;change?:FileChangeState;line?:number}
+export interface DiffLine{type:'add'|'remove'|'context';text:string;oldNo?:number;newNo?:number}
+export interface FileDiff{path:string;change:FileChangeState;language:string;lines:DiffLine[]}
+export type StepStatus='pending'|'running'|'completed'|'failed'|'blocked'|'waiting'
+export interface PlanStep{id:string;index:number;title:string;status:StepStatus;detail?:string;command?:string}
+export type WorkflowStage='plan'|'approval'|'execute'|'verify'|'recover'|'complete'
+export type WorkflowPhaseStatus='pending'|'active'|'done'|'failed'|'skipped'
+export interface WorkflowSnapshot{id:string;name:string;phase:WorkflowStage;phases:{stage:WorkflowStage;label:string;status:WorkflowPhaseStatus}[];steps:PlanStep[];progress:number;persistable:boolean;resumable:boolean;interrupted:boolean}
+export type PermissionOperation='edit-file'|'write-file'|'delete-file'|'run-command'|'run-tests'
+export type PermissionState='pending'|'approved'|'denied'
+export interface PermissionRequest{id:string;operation:PermissionOperation;target:string;reason:string;risk:'low'|'medium'|'high';state:PermissionState;diff?:FileDiff;command?:string;createdAt:string}
+export const OPERATION_LABEL:Record<PermissionOperation,string>={'edit-file':'Edit file','write-file':'Write file','delete-file':'Delete file','run-command':'Run command','run-tests':'Run test suite'}
+export type CheckStatus='passed'|'failed'|'pending'|'skipped'
+export interface VerificationCheck{id:string;label:string;status:CheckStatus;detail?:string}
+export interface VerificationResult{id:string;passed:boolean;checks:VerificationCheck[];summary:string;failure?:{title:string;detail:string;failedCount:number;output:string}}
+export interface RecoveryState{active:boolean;title:string;detail:string;automatic:boolean;attempt:number}
+export interface RollbackState{active:boolean;target:string;detail:string;restored:boolean}
+export interface MemoryEntry{id:string;text:string;scope:'project'|'workflow'|'session';source:string;at:string}
+export type TaskState='todo'|'active'|'done'
+export interface TaskItem{id:string;title:string;state:TaskState;linkedStep?:string}
+export interface Goal{id:string;title:string;progress:number;detail:string}
+export type HistoryKind='inspect'|'edit'|'command'|'test'|'git'|'task'|'rollback'|'permission'
+export interface ActionRecord{id:string;kind:HistoryKind;label:string;detail?:string;at:string;status:'ok'|'failed'|'undone'}
+export type NotificationTone='info'|'success'|'warning'|'error'
+export interface GenosNotification{id:string;tone:NotificationTone;title:string;body?:string;at:string}
+export interface GenosState{project:ProjectContext;status:AgentStatus;statusDetail:string;messages:ChatMessage[];workflow:WorkflowSnapshot;permission:PermissionRequest|null;verification:VerificationResult|null;recovery:RecoveryState|null;rollback:RollbackState|null;memories:MemoryEntry[];tasks:TaskItem[];goal:Goal;history:ActionRecord[];files:FileReference[];notifications:GenosNotification[];busy:boolean}
+export type DemoScenario='success'|'failure'
