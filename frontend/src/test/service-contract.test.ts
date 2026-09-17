@@ -4,9 +4,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { genosService } from '../services/genosService'
 import { getDemoControls, type DemoControls } from '../services/demo'
+import { MockGenosService } from '../mock/engine'
 import type { GenosService } from '../services/types'
 
 const FIX = 'Fix the failing tests in the memory resolver.'
+const mockService: GenosService = new MockGenosService()
 
 describe('demo controls are isolated from the production contract', () => {
   it('the singleton is a plain GenosService at the type level', () => {
@@ -16,7 +18,7 @@ describe('demo controls are isolated from the production contract', () => {
   })
 
   it('getDemoControls finds them on the mock…', () => {
-    const demo: DemoControls | null = getDemoControls(genosService)
+    const demo: DemoControls | null = getDemoControls(mockService)
     expect(demo).not.toBeNull()
     expect(['success', 'failure']).toContain(demo!.getDemoScenario())
   })
@@ -71,62 +73,62 @@ describe('resume vs retry semantics', () => {
   })
   afterEach(() => {
     vi.useRealTimers()
-    getDemoControls(genosService)?.reset()
+    getDemoControls(mockService)?.reset()
   })
 
   const advance = (ms: number) => vi.advanceTimersByTimeAsync(ms)
 
   it('resume without an interrupted workflow is a typed conflict', async () => {
-    const result = await genosService.resumeWorkflow()
+    const result = await mockService.resumeWorkflow()
     expect(result).toMatchObject({ ok: false, error: { code: 'conflict' } })
   })
 
   it('retry without any workflow is a typed invalid-request', async () => {
-    const result = await genosService.retryWorkflow()
+    const result = await mockService.retryWorkflow()
     expect(result).toMatchObject({ ok: false, error: { code: 'invalid-request' } })
   })
 
   it('deny ⇒ interrupted ⇒ resume continues (not restarts)', async () => {
-    await genosService.sendMessage(FIX)
+    await mockService.sendMessage(FIX)
     await advance(3000) // understanding → context → plan → permission
 
-    const denied = await genosService.denyAction()
+    const denied = await mockService.denyAction()
     expect(denied.ok).toBe(true)
-    expect(genosService.getState().workflow.interrupted).toBe(true)
+    expect(mockService.getState().workflow.interrupted).toBe(true)
 
-    const messagesBefore = genosService.getState().messages.length
-    const resumed = await genosService.resumeWorkflow()
+    const messagesBefore = mockService.getState().messages.length
+    const resumed = await mockService.resumeWorkflow()
     expect(resumed.ok).toBe(true)
-    expect(genosService.getState().workflow.interrupted).toBe(false)
+    expect(mockService.getState().workflow.interrupted).toBe(false)
 
     await advance(1200) // resume re-issues the approval gate
-    const permission = genosService.getState().permission
+    const permission = mockService.getState().permission
     expect(permission?.state).toBe('pending')
 
     // resume continued: the conversation grew, it did not reset to the seed
-    expect(genosService.getState().messages.length).toBeGreaterThan(messagesBefore)
-    expect(genosService.getState().workflow.steps).toHaveLength(4)
+    expect(mockService.getState().messages.length).toBeGreaterThan(messagesBefore)
+    expect(mockService.getState().workflow.steps).toHaveLength(4)
   })
 
   it('validation guards: empty send, double approve, rollback without failure', async () => {
-    expect(await genosService.sendMessage('   ')).toMatchObject({
+    expect(await mockService.sendMessage('   ')).toMatchObject({
       ok: false,
       error: { code: 'invalid-request' },
     })
-    expect(await genosService.approveAction()).toMatchObject({
+    expect(await mockService.approveAction()).toMatchObject({
       ok: false,
       error: { code: 'conflict' },
     })
-    expect(await genosService.requestRollback()).toMatchObject({
+    expect(await mockService.requestRollback()).toMatchObject({
       ok: false,
       error: { code: 'conflict' },
     })
   })
 
   it('sending while busy is a typed conflict', async () => {
-    await genosService.sendMessage(FIX)
+    await mockService.sendMessage(FIX)
     await advance(500)
-    const second = await genosService.sendMessage('another task')
+    const second = await mockService.sendMessage('another task')
     expect(second).toMatchObject({ ok: false, error: { code: 'conflict' } })
   })
 })
