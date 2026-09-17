@@ -1,0 +1,7 @@
+/* GENOS frontend — style entry point. Order matters. */
+@import './tokens.css';
+@import './base.css';
+@import './components.css';
+@import './chat.css';
+@import './layout.css';
+@import './floating.css';
